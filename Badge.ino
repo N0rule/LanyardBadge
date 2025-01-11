@@ -36,54 +36,78 @@ struct ColorPalette {
 
 // Refined retro color palettes
 const ColorPalette PALETTES[] = {
-    // GameBoy - Green tones
-    {
-        0xDED6, // Lightest (208, 208, 88)
-        0xA534, // Light (160, 168, 64)
-        0x7408, // Dark (112, 128, 40)
-        0x4284, // Darkest (64, 80, 16)
-        "GameBoy"
-    },
-    // Commodore VIC-20
-    {
-        0xFFDD, // Lightest (255, 251, 232)
-        0xFCA0, // Light (255, 164, 0)
-        0xC800, // Dark (200, 0, 0)
-        0x6800, // Darkest (104, 0, 0)
-        "VIC-20"
-    },
-    // ZX Spectrum - Blue theme
-    {
-        0xEF7D, // Lightest (238, 239, 239)
-        0x651F, // Light (99, 162, 255)
-        0x421F, // Dark (66, 129, 255)
-        0x001F, // Darkest (0, 0, 255)
-        "ZX Blue"
-    },
-    // Atari 2600 - Sunset
-    {
-        0xFE19, // Lightest (255, 195, 204)
-        0xFB2C, // Light (255, 153, 153)
-        0xE124, // Dark (227, 73, 35)
-        0x8800, // Darkest (136, 0, 0)
-        "Atari"
-    },
-    // NES - Purple theme
-    {
-        0xFFDF, // Lightest (255, 255, 255)
-        0xF81F, // Light (255, 0, 255)
-        0x780F, // Dark (119, 0, 119)
-        0x4007, // Darkest (64, 0, 64)
-        "NES"
-    },
-    // Apple II - Monochrome
-    {
-        0xFFFF, // Lightest (255, 255, 255)
-        0xBDF7, // Light (189, 189, 189)
-        0x7BEF, // Dark (123, 123, 123)
-        0x0000, // Darkest (0, 0, 0)
-        "Apple II"
-    }
+  // GameBoy - Green tones
+  {
+    0xDED6, // Lightest (208, 208, 88)
+    0xA534, // Light (160, 168, 64)
+    0x7408, // Dark (112, 128, 40)
+    0x4284, // Darkest (64, 80, 16)
+    "GameBoy"
+  },
+  // NES - Purple theme
+  {
+    0xFFDF, // Lightest (255, 255, 255)
+    0xF81F, // Light (255, 0, 255)
+    0x780F, // Dark (119, 0, 119)
+    0x4007, // Darkest (64, 0, 64)
+    "NES"
+  },
+  // Commodore VIC-20
+  {
+    0xFFDD, // Lightest (255, 251, 232)
+    0xFCA0, // Light (255, 164, 0)
+    0xC800, // Dark (200, 0, 0)
+    0x6800, // Darkest (104, 0, 0)
+    "VIC-20"
+  },
+  // Atari 2600 - Sunset
+  {
+    0xFE19, // Lightest (255, 195, 204)
+    0xFB2C, // Light (255, 153, 153)
+    0xE124, // Dark (227, 73, 35)
+    0x8800, // Darkest (136, 0, 0)
+    "Atari"
+  },
+  // Amiga - Red theme
+  {
+    0xFFFF, // Lightest (255, 255, 255)
+    0xF800, // Light (255, 0, 0)
+    0x7800, // Dark (120, 0, 0)
+    0x4000, // Darkest (64, 0, 0)
+    "Amiga Red"
+  },
+  // Apple II - Monochrome
+  {
+    0xFFFF, // Lightest (255, 255, 255)
+    0xBDF7, // Light (189, 189, 189)
+    0x7BEF, // Dark (123, 123, 123)
+    0x0000, // Darkest (0, 0, 0)
+    "Apple II"
+  },
+  // C64 - Blue theme
+  {
+    0xFFFF, // Lightest (255, 255, 255)
+    0x7E0,  // Light (0, 255, 0)
+    0x1F,   // Dark (0, 0, 255)
+    0xF800, // Darkest (255, 0, 0)
+    "C64 Blue"
+  },
+  // ZX Spectrum - Blue theme
+  {
+    0xEF7D, // Lightest (238, 239, 239)
+    0x651F, // Light (99, 162, 255)
+    0x421F, // Dark (66, 129, 255)
+    0x001F, // Darkest (0, 0, 255)
+    "ZX Blue"
+  },
+  // Sega Master System - Blue theme
+  {
+    0xFFFF, // Lightest (255, 255, 255)
+    0x001F, // Light (0, 0, 255)
+    0x0010, // Dark (0, 0, 128)
+    0x0008, // Darkest (0, 0, 64)
+    "Sega Blue"
+  }
 };
 
 // State management
@@ -219,7 +243,6 @@ void drawProfileImage() {
                    PALETTES[currentPalette].light,
                    PALETTES[currentPalette].darkest);
     tft.endWrite();
-    serial.println("Drawing profile image" );
 }
 
 void handleTouch() {
