@@ -1,0 +1,48 @@
+#include <SPI.h>
+#include <XPT2046_Touchscreen.h>
+#include <TFT_eSPI.h>
+
+// ----------------------------
+
+SPIClass mySpi = SPIClass(VSPI);
+XPT2046_Touchscreen ts(XPT2046_CS, XPT2046_IRQ);
+
+TFT_eSPI tft = TFT_eSPI();
+
+void setup() {
+  Serial.begin(115200);
+
+  // Start the SPI for the touch screen and init the TS library
+  mySpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+  ts.begin(mySpi);
+  ts.setRotation(3);
+
+  // Start the tft display and set it to black
+  tft.init();
+  tft.setRotation(3); //This is the display in landscape
+  tft.fillScreen(TFT_BLACK);
+  tft.setCursor(120, 160);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.println("Hello World");
+}
+
+void printTouchToSerial() {
+  if (ts.tirqTouched() && ts.touched()) {
+    TS_Point p = ts.getPoint();
+    Serial.println("P = " + String(p.z) + "|x = " + String(p.x) + "|y = " + String(p.y));
+  }
+}
+
+void BRIGHTNESSCONTROL(uint8_t Value) {
+  if (Value < 0 || Value > 100) {
+    printf("TFT_SET_BL Error \r\n");
+  } else {
+    analogWrite(TFT_BL, Value * 2.55);
+  }
+}
+
+void loop() {
+  printTouchToSerial();
+  delay(100);
+}
