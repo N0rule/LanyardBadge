@@ -98,6 +98,10 @@ bool currentImageAlternate = false;
 unsigned long lastImageSwitch = 0;
 constexpr unsigned long IMAGE_SWITCH_INTERVAL = 15000; // 15 seconds
 
+// New palette switch timing
+unsigned long lastPaletteSwitch = 0;
+constexpr unsigned long PALETTE_SWITCH_INTERVAL = 30000; // 30 seconds
+
 // Function prototypes
 void drawBadgeFrame(bool preserveImage = false);
 void drawTexts();
@@ -215,6 +219,7 @@ void drawProfileImage() {
                    PALETTES[currentPalette].light,
                    PALETTES[currentPalette].darkest);
     tft.endWrite();
+    serial.println("Drawing profile image" );
 }
 
 void handleTouch() {
@@ -270,10 +275,17 @@ void cycleBrightness() {
 
 void updateAnimations() {
     unsigned long currentTime = millis();
-    
+
+    // Image switch logic
     if (currentTime - lastImageSwitch >= IMAGE_SWITCH_INTERVAL) {
         currentImageAlternate = !currentImageAlternate;
         drawProfileImage();
         lastImageSwitch = currentTime;
+    }
+
+    // Automatic palette switch logic
+    if (currentTime - lastPaletteSwitch >= PALETTE_SWITCH_INTERVAL) {
+        cyclePalette();
+        lastPaletteSwitch = currentTime;
     }
 }
