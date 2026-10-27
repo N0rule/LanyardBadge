@@ -21,7 +21,7 @@ bool Bluetooth::begin() {
     NimBLEDevice::setMTU(517);
     // Encrypted GATT link, with the QR secret providing application-level ownership.
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
-    NimBLEDevice::setSecurityAuth(false, false, true);
+    NimBLEDevice::setSecurityAuth(true, false, true);
     server_ = NimBLEDevice::createServer();
     server_->setCallbacks(this, false);
     server_->advertiseOnDisconnect(true);
@@ -45,8 +45,10 @@ String Bluetooth::pairingUrl() const {
     return String("https://n0rule.github.io/LanyardBadge/#badge=") + name_ +
            "&key=" + settings_.value.pairingKey;
 }
-void Bluetooth::revoke() {
+void Bluetooth::revoke(bool forgetBonds) {
     api_.revokeSession();
+    if (forgetBonds)
+        NimBLEDevice::deleteAllBonds();
     if (connected_ && server_)
         server_->disconnect(handle_);
     reset();
@@ -56,6 +58,8 @@ void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
     mtu_ = info.getMTU();
     connected_ = true;
     ++generation_;
+    // Establish security before encrypted GATT reads; retain peer keys for reconnects.
+    NimBLEDevice::startSecurity(info.getConnHandle());
 }
 void Bluetooth::onDisconnect(NimBLEServer *, NimBLEConnInfo &, int) {
     connected_ = false;

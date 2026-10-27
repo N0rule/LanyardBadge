@@ -14,7 +14,6 @@ enum class Command {
     Interval,
     DefaultCard,
     Setup,
-    WifiSetup,
     CloseSetup,
     Rotate,
     Restart,
@@ -30,7 +29,6 @@ enum class Page {
     Info,
     Diagnostics,
     Calibration,
-    Setup,
     Storage,
     Pairing,
     Slideshow,
@@ -78,8 +76,6 @@ class Ui {
   public:
     std::function<void(Command, int)> command;
     std::function<String()> info;
-    std::function<String()> editorUrl;
-    std::function<String()> connectionHint;
     std::function<String()> pairingUrl;
     std::function<String()> bluetoothName;
     Ui(Display &d, Touch &t, Assets &a, SettingsStore &s)
@@ -110,6 +106,7 @@ class Ui {
     }
     void diagnostics(JsonDocument &) const;
     void benchmark(bool streaming);
+    void benchmarkMenu();
     void orientation();
     void uploadProgress(int percent);
 };

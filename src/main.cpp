@@ -80,9 +80,6 @@ void act(Command c, int value) {
     case Command::Setup:
         ui.page(Page::Pairing);
         return;
-    case Command::WifiSetup:
-        ui.page(Page::Pairing);
-        return;
     case Command::Timeout: {
         const uint32_t options[] = {0, 15, 30, 60, 120, 300, 600};
         for (unsigned i = 0; i < 7; ++i)
@@ -94,7 +91,7 @@ void act(Command c, int value) {
     }
     case Command::RevokePairing:
         if (settings.revokePairing()) {
-            bluetooth.revoke();
+            bluetooth.revoke(true);
             ui.page(Page::Pairing);
         }
         return;
@@ -145,6 +142,8 @@ void serialCommand(const String &s) {
         ui.sleep();
     else if (s == "wake")
         ui.wake();
+    else if (s == "bench-menu")
+        ui.benchmarkMenu();
     else if (s == "bench-lvgl")
         ui.benchmark(false);
     else if (s == "bench-stream")
@@ -157,8 +156,6 @@ void serialCommand(const String &s) {
         ui.page(Page::Pairing);
     else if (s == "setup")
         act(Command::Setup, 0);
-    else if (s == "wifi")
-        act(Command::WifiSetup, 0);
     else if (s == "close")
         act(Command::CloseSetup, 0);
     else if (s == "storage-init")
@@ -219,14 +216,13 @@ void setup() {
     };
     network.showBadge = [] { ui.page(Page::Badge); };
     network.paired = [] {
-        if (settings.value.provisioned &&
-            (ui.currentPage() == Page::Setup || ui.currentPage() == Page::Pairing))
+        if (settings.value.provisioned && ui.currentPage() == Page::Pairing)
             ui.page(Page::Badge);
     };
     network.deviceStatus = [](JsonDocument &d) {
         d["screen"] = ui.currentPage() == Page::Badge         ? "badge"
                       : ui.currentPage() == Page::Calibration ? "calibration"
-                      : ui.currentPage() == Page::Setup       ? "connection"
+                      : ui.currentPage() == Page::Pairing     ? "connection"
                                                               : "menu";
         d["touchPressed"] = touch.down();
         d["touchPressure"] = touch.pressure();

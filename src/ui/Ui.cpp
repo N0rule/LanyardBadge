@@ -334,6 +334,28 @@ void Ui::benchmark(bool streaming) {
     streaming_ = old;
     page(Page::Badge);
 }
+void Ui::benchmarkMenu() {
+    Page previous = page_;
+    uint8_t brightness = settings_.value.brightness;
+    page(Page::Display);
+    uint32_t start = micros();
+    render();
+    lv_refr_now(lvDisplay_);
+    uint32_t full = micros() - start, total = 0, maximum = 0;
+    for (unsigned i = 0; i < 10; ++i) {
+        settings_.value.brightness = i % 2 ? 65 : 75;
+        start = micros();
+        updateControls();
+        lv_refr_now(lvDisplay_);
+        uint32_t elapsed = micros() - start;
+        total += elapsed;
+        maximum = std::max(maximum, elapsed);
+    }
+    settings_.value.brightness = brightness;
+    Serial.printf("BENCH mode=menu fullUs=%lu partialMeanUs=%lu partialMaxUs=%lu\n",
+                  (unsigned long)full, (unsigned long)(total / 10), (unsigned long)maximum);
+    page(previous);
+}
 void Ui::diagnostics(JsonDocument &d) const {
     d["screenAsleep"] = activity_.asleep();
     d["wakeConsumed"] = activity_.consumed();
@@ -481,26 +503,6 @@ void Ui::render() {
         lv_qrcode_update(qr, url.c_str(), url.length());
         String name = bluetoothName ? bluetoothName() : String("LanyardBadge");
         label(root, name.c_str(), 16, 294, 208, 22, font(14), ink);
-        return;
-    }
-    if (page_ == Page::Setup) {
-        header("Connect to edit");
-        String hint = connectionHint ? connectionHint() : String(settings_.value.apName);
-        label(root, hint.c_str(), 16, 52, 208, 44, font(14), ink);
-        String url = editorUrl ? editorUrl() : String("http://192.168.4.1");
-        auto *qr = lv_qrcode_create(root);
-        lv_qrcode_set_size(qr, 96);
-        lv_obj_set_pos(qr, 72, 105);
-        lv_obj_set_style_border_color(qr, lv_color_white(), 0);
-        lv_obj_set_style_border_width(qr, 8, 0);
-        lv_qrcode_set_dark_color(qr, lv_color_black());
-        lv_qrcode_set_light_color(qr, lv_color_white());
-        lv_qrcode_update(qr, url.c_str(), url.length());
-        label(root, url.c_str(), 16, 212, 208, 20, font(14), ink);
-        String password = String("Password: ") + settings_.value.apPassword;
-        label(root, password.c_str(), 16, 238, 208, 20, font(14), blue);
-        auto *b = button(root, "Show badge / keep editing", -1 - int(Page::Badge));
-        lv_obj_set_pos(b, 16, 266);
         return;
     }
     header(page_ == Page::Menu        ? "Your badge"

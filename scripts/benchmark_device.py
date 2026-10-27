@@ -17,7 +17,7 @@ with s:
             if line.startswith('{"firmware"'):return json.loads(line)
         raise RuntimeError('Status timed out')
     before=status();measurements=[]
-    for mode in ('lvgl','stream'):
+    for mode in ('lvgl','stream','menu'):
         command('bench-'+mode);end=time.monotonic()+30
         while time.monotonic()<end:
             line=s.readline().decode(errors='replace').strip()

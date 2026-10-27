@@ -46,7 +46,7 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
         : api_(api), assets_(assets), settings_(settings) {}
     bool begin();
     void tick();
-    void revoke();
+    void revoke(bool forgetBonds = false);
     bool connected() const { return connected_; }
     String name() const { return name_; }
     String pairingUrl() const;
