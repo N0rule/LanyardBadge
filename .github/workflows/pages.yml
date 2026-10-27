@@ -1,0 +1,58 @@
+name: Build and publish LanyardBadge
+on:
+  push:
+    branches: [main, rewrite/lanyardbadge-2]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+      - name: Install pinned build tools
+        run: pip install platformio==6.1.19
+      - name: Host validation
+        run: bash scripts/test-host.sh
+      - name: Browser validation
+        working-directory: tests
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+      - name: Build firmware
+        run: pio run -e cyd2usb
+      - name: Package site and versioned firmware
+        run: |
+          python scripts/vendor_installer.py
+          python scripts/package_site.py --output test-results/site
+          python scripts/validate_site.py test-results/site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ github.sha }}
+          path: test-results/site/firmware
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: test-results/site
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
