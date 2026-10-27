@@ -2,6 +2,12 @@
 
 ## 2.3.1 connection and onboarding correction
 
+Released source: `f6b5742cddc1` on `main`.
+[Build, tests and Pages deployment passed](https://github.com/N0rule/LanyardBadge/actions/runs/40515826978).
+The public firmware artifact is 1,667,792 bytes, SHA-256
+`e562669a7bbfa7c8e0d29e26955a8fcd6c2f6e19a3b63c33ad2cfb6fd5d509e0`.
+Its packaged hashes, compiled partition layout and fresh/update offsets were checked.
+
 The owner reflashed from stock to test onboarding; this follow-up started with
 an unprovisioned device, revision 0, default settings and no saved artwork.
 The older artwork remains in the pre-work/release snapshots below. Before this
@@ -10,7 +16,7 @@ update, another full 4 MB snapshot was read successfully after USB was reseated:
 `7287d07b2f8884eee93ea3b2292280dbe28075659192a0a6655478cb0f577f6a`.
 
 - Firmware 2.3.1 compiled and flashed through the guarded PlatformIO uploader;
-  actual application image 1,667,760 bytes in the unchanged 2 MiB slot.
+  final application image 1,667,792 bytes in the unchanged 2 MiB slot.
 - Serial boot confirmed advertising, unprovisioned onboarding and optional
   calibration. Settings and revision 0 were retained.
 - **Fourteen simulated-GATT Chromium tests passed**, including short-code entry,
@@ -20,6 +26,9 @@ update, another full 4 MB snapshot was read successfully after USB was reseated:
   accepted its four-letter code, remembered its strong credential and reconnected
   automatically after page refresh. Exactly one chooser was used; no second code
   or pairing dialog appeared. Forget badge cleared saved browser access.
+- **The deployed public website passed the same real-radio test**, including
+  three consecutive page refreshes with automatic reconnect, exactly one chooser
+  and no second code entry. Forget badge also passed; revision 0 was unchanged.
 - Real Bleak checks rejected short-code entry outside the connection screen (403),
   rejected five wrong guesses (401), enforced a 30-second cooldown (429) across
   disconnects, and accepted the lowercase correct code after cooldown. The strong
@@ -45,8 +54,10 @@ Earlier host logs contain BlueZ 5.87 SIGSEGV crashes; a later real BLE scan saw 
 badge at RSSI -44. These changes do not claim to fix the host daemon itself.
 
 Local evidence: `short-code-status.log`, `short-code-upload.log`,
-`short-code-browser.json`, `short-code-security.json`, `reconnect-host-tests.log`
-and `reconnect-browser-tests.log` under ignored `test-results/`.
+`short-code-heading-upload.log`, `short-code-browser.json`,
+`short-code-browser-public.json`, `short-code-security.json`,
+`reconnect-host-tests.log` and `reconnect-browser-tests.log` under ignored
+`test-results/`.
 
 ## 2.3.0 baseline release
 
