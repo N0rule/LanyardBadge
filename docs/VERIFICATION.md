@@ -123,9 +123,9 @@ to manufacture a fresh-install test.
 
 ## Final firmware and end-to-end radio run
 
-Final local CYD2USB binary: **1662848 bytes** of 2097152 (434304 bytes headroom).
-SHA-256: `df8bb9b3db88483c2ce80888a539815f8533713072481d25e9658246b7d889f9`.
-Static RAM remains 73760 bytes (22.5%). Final firmware was flashed and hash-verified.
+Final local CYD2USB binary: **1662080 bytes** of 2097152 (435072 bytes headroom).
+SHA-256: `707340401f592e4f515f461a7b2f7bfb590ac047f5b84b1abb513ddbe1edac9d`.
+Static RAM is 73704 bytes (22.5%). Final firmware was flashed and hash-verified.
 
 After retaining BLE bonds and clearing this badge's stale host pairing record,
 a fresh real Bleak run passed pairing, full upload/download comparison, an atomic
@@ -188,3 +188,38 @@ zone, avoid boot entropy configuration during BLE key revocation, and keep edito
 connection/save labels aligned with actual state. USB installer dialog colors
 inherit the chosen theme. Packaged script/style URLs include the deployed commit
 so a cached older transport cannot be mixed with a fresh page.
+
+## Stock uploader overlap discovered and corrected
+
+A late audit of the complete PlatformIO upload log found that Arduino's stock
+recipe included `boot_app0.bin` at 0xe000 for 8192 bytes even though this is a
+factory-only layout. That range overlaps the last NVS sector and PHY partition.
+Earlier uploads retained that stock recipe; the extra image should have been
+checked before the first upload. No card or validated settings loss was observed,
+and both full backups remain intact, but the recipe was unsafe for this table.
+
+`scripts/check_firmware.py` now removes that OTA stub from uploader flags before
+execution, validates sector-rounded flash-write ranges, and checks the compiled
+partition table against the preserved layout. New negative host tests reject the
+OTA stub, NVS/PHY/filesystem writes, boundary-crossing erases and filesystem
+relocation. The real guarded upload log contains only bootloader at 0x1000,
+partitions at 0x8000 and application at 0x10000; no 0xe000 write occurs. USB
+manifests already excluded the OTA stub.
+
+After this upload, the two cards and revision 16, selected ID, calibration and
+slideshow remained available. The current persisted brightness is 100% and timeout
+600 seconds, changed since the earlier 5%/120-second baseline; these current values
+are retained rather than overwritten by the test harness.
+
+## BLE interval optimization
+
+After successful encrypted authentication, the USB-powered badge requests
+7.5–15 ms connection events (the central may reject the request). Actual negotiated
+intervals are exposed in diagnostics. A new complete real Bleak run negotiated
+**15 ms** and uploaded the same complete artwork in **17.730 seconds**, compared
+with 43.388 seconds in the earlier run. Byte comparison, metadata commit, card
+selection, restoration, interrupted upload and reconnect all passed again.
+Revision advanced from 16 to 18 through the test and restoration. These measured
+times are not throughput guarantees for other phones/hosts. The earlier test key
+was rejected after the device's key changed; the harness refreshed its private
+key file from the current device without printing or modifying the credential.

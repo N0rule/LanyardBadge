@@ -49,7 +49,9 @@ keep one serial connection open when collecting concurrent BLE diagnostics.
 
 The partition layout preserves the connected 2.1.0 device: a 2 MiB application at
 `0x10000`, LittleFS at `0x210000` for `0x1f0000` bytes. Actual padded firmware size
-is checked after build and before upload. Ordinary updates write no filesystem
+is checked after build and before upload. The guard also removes Arduino’s unused
+OTA stub, rejects writes into NVS/PHY/artwork, and validates the compiled partition
+table. Ordinary updates write no filesystem
 image. Settings migrate to a separate versioned NVS key without deleting v2.
 
 **Back up existing devices before migration.** Other firmware/layouts, including

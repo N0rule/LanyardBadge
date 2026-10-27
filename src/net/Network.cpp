@@ -202,12 +202,6 @@ void Network::dispatch(const String &path) {
         JsonDocument out;
         out["removed"] = assets_.collectGarbage();
         json(200, out);
-    } else if (path == "/api/close") {
-        JsonDocument out;
-        out["ok"] = true;
-        json(200, out);
-        if (requestClose)
-            requestClose();
     }
     body_ = ""; // Keep capacity bounded; release request content containing passwords.
 }

@@ -56,7 +56,9 @@ recovery; no power-loss reset or flash erase is involved.
 This preserves the live 2.1.0 layout. The starting source's larger application
 partition would have overwritten stored artwork. Removing Wi-Fi, HTTP, embedded
 web assets and bundled sample inflation lets BLE firmware fit the existing slot.
-Saved Wi-Fi credentials remain in the original settings for recovery; no API
+The upload guard also removes Arduino’s unused `boot_app0.bin` at 0xe000,
+which would overlap NVS/PHY with this factory layout, and validates sector-rounded
+write ranges and compiled partition addresses. Saved Wi-Fi credentials remain in the original settings for recovery; no API
 exposes them. Wi-Fi editing is no longer offered. Older single-sketch or 2.5 MiB
 layouts need a backup and explicit offline migration, not this update manifest.
 

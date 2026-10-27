@@ -120,7 +120,9 @@ bool Ui::begin() {
         if (!strcmp(assets_.deck.cards[i].id, settings_.value.selected))
             selected_ = i;
     activity_.wake(millis());
-    if (!settings_.value.provisioned)
+    if (!settings_.value.provisioned ||
+        (assets_.deck.count && !strcmp(assets_.deck.cards[selected_].mode, "artwork") &&
+         !assets_.bitmapExists(assets_.deck.cards[selected_].image)))
         page(Page::Pairing);
     render();
     return true;
@@ -582,7 +584,7 @@ void Ui::render() {
 }
 void Ui::page(Page p) {
     wake();
-    if (p == Page::Badge && !assets_.deck.count)
+    if (p == Page::Badge && (!assets_.deck.count || !settings_.value.provisioned))
         p = Page::Pairing;
     page_ = p;
     dirty_ = true;

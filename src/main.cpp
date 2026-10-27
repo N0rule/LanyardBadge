@@ -207,7 +207,6 @@ void setup() {
         while (true)
             delay(1000);
     }
-    network.pump = [] { ui.pump(); };
     network.progress = [](int p) { ui.uploadProgress(p); };
     network.selected = [] { return ui.selected(); };
     network.select = [](unsigned i) {
@@ -231,6 +230,8 @@ void setup() {
         d["touchRawY"] = touch.raw().y;
         d["bluetoothConnected"] = bluetooth.connected();
         d["bluetoothName"] = bluetooth.name();
+        d["bluetoothInitialIntervalMs"] = bluetooth.initialIntervalMs();
+        d["bluetoothIntervalMs"] = bluetooth.intervalMs();
         ui.diagnostics(d);
         d["loopMaxUs"] = loopMaxUs;
     };
@@ -278,7 +279,6 @@ void setup() {
         ui.orientation();
         switchedAt = millis();
     };
-    network.requestClose = [] { pendingClose = true; };
 
     switchedAt = millis();
     Serial.println("Ready. Hold screen for menu. Hold BOOT 2s for editor, 6s for touch recovery.");

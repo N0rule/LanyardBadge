@@ -49,7 +49,6 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 | POST `/api/calibrate` | `{}` → starts optional physical calibration |
 | POST `/api/gc` | `{}` → number of unreferenced images removed |
 | POST `/api/display` | `{}` → returns to artwork |
-| POST `/api/close` | `{}` → closes the session |
 
 Except pairing, operations require the session token in the request header. Asset
 uploads additionally require the authenticated connection. UUIDs and API paths

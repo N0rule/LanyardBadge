@@ -56,6 +56,7 @@ void Bluetooth::revoke(bool forgetBonds) {
 void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
     handle_ = info.getConnHandle();
     mtu_ = info.getMTU();
+    initialInterval_ = info.getConnInterval();
     connected_ = true;
     ++generation_;
     // Establish security before encrypted GATT reads; retain peer keys for reconnects.
@@ -64,6 +65,18 @@ void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
 void Bluetooth::onDisconnect(NimBLEServer *, NimBLEConnInfo &, int) {
     connected_ = false;
     ++generation_;
+}
+float Bluetooth::intervalMs() const {
+    return connected_ ? server_->getPeerInfoByHandle(handle_).getConnInterval() * 1.25f : 0;
+}
+void Bluetooth::onAuthenticationComplete(NimBLEConnInfo &info) {
+    if (!info.isEncrypted()) {
+        server_->disconnect(info.getConnHandle());
+        return;
+    }
+    // USB powered, no Wi-Fi coexistence: request 7.5–15 ms events for artwork.
+    // The central can reject this request; transfer framing remains unchanged.
+    server_->updateConnParams(info.getConnHandle(), 6, 12, 0, 400);
 }
 void Bluetooth::onMTUChange(uint16_t mtu, NimBLEConnInfo &) {
     mtu_ = mtu;

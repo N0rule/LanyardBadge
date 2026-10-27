@@ -7,3 +7,4 @@ c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g tests/core_
 "$binary"
 node tests/codec.test.cjs
 node --check web/app.js
+python3 scripts/test_flash_layout.py

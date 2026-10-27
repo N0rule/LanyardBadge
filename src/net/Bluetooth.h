@@ -22,7 +22,7 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     std::atomic<uint32_t> generation_{0};
     uint32_t seenGeneration_ = 0, lastActivity_ = 0, received_ = 0, length_ = 0, sent_ = 0;
     uint16_t sequence_ = 0;
-    std::atomic<uint16_t> mtu_{23}, handle_{0};
+    std::atomic<uint16_t> mtu_{23}, handle_{0}, initialInterval_{0};
     bool receiving_ = false, uploading_ = false, responding_ = false, responseHeader_ = false;
     bool authenticated_ = false, waitingAck_ = false;
     String header_;
@@ -38,6 +38,7 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     void onConnect(NimBLEServer *, NimBLEConnInfo &) override;
     void onDisconnect(NimBLEServer *, NimBLEConnInfo &, int) override;
     void onMTUChange(uint16_t, NimBLEConnInfo &) override;
+    void onAuthenticationComplete(NimBLEConnInfo &) override;
     void onWrite(NimBLECharacteristic *, NimBLEConnInfo &) override;
     void onRead(NimBLECharacteristic *, NimBLEConnInfo &) override;
 
@@ -48,6 +49,8 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     void tick();
     void revoke(bool forgetBonds = false);
     bool connected() const { return connected_; }
+    float initialIntervalMs() const { return initialInterval_ * 1.25f; }
+    float intervalMs() const;
     String name() const { return name_; }
     String pairingUrl() const;
 };

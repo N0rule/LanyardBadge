@@ -22,8 +22,7 @@ class Network {
     void status();
 
   public:
-    std::function<void()> pump, cardsChanged, settingsChanged, calibrateTouch, requestClose, paired,
-        showBadge;
+    std::function<void()> cardsChanged, settingsChanged, calibrateTouch, paired, showBadge;
     std::function<unsigned()> selected;
     std::function<void(unsigned)> select;
     std::function<void(int)> progress;
