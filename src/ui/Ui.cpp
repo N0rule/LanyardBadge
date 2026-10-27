@@ -493,16 +493,20 @@ void Ui::render() {
               16, 12, 208, 52, font(20), ink);
         label(root, "Scan to connect and customize.", 8, 70, 224, 24, font(14), ink);
         String url = pairingUrl ? pairingUrl() : String("");
-        auto *qr = lv_qrcode_create(root);
-        lv_qrcode_set_size(qr, 180);
-        lv_obj_set_pos(qr, 30, 104);
-        lv_obj_set_style_border_color(qr, lv_color_white(), 0);
-        lv_obj_set_style_border_width(qr, 16, 0);
+        auto *quiet = lv_obj_create(root);
+        plain(quiet);
+        lv_obj_set_pos(quiet, 22, 96);
+        lv_obj_set_size(quiet, 196, 196);
+        lv_obj_set_style_bg_color(quiet, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(quiet, LV_OPA_COVER, 0);
+        auto *qr = lv_qrcode_create(quiet);
+        lv_qrcode_set_size(qr, 164);
+        lv_obj_set_pos(qr, 16, 16);
         lv_qrcode_set_dark_color(qr, lv_color_black());
         lv_qrcode_set_light_color(qr, lv_color_white());
         lv_qrcode_update(qr, url.c_str(), url.length());
         String name = bluetoothName ? bluetoothName() : String("LanyardBadge");
-        label(root, name.c_str(), 16, 294, 208, 22, font(14), ink);
+        label(root, name.c_str(), 16, 298, 208, 22, font(14), ink);
         return;
     }
     header(page_ == Page::Menu        ? "Your badge"

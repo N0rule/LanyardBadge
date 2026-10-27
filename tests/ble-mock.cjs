@@ -55,6 +55,13 @@ function installMock() {
     tx.dispatchEvent(e);
   };
   function send() {
+    if (mock.replyDelay) {
+      setTimeout(deliver, mock.replyDelay);
+      return;
+    }
+    deliver();
+  }
+  function deliver() {
     if (replyAt < reply.length) {
       const n = Math.min(13, reply.length - replyAt);
       const at = replyAt;
@@ -101,34 +108,43 @@ function installMock() {
     }
     return answer(200, { ok: true });
   }
+  let gattWriteBusy = false;
   const rx = {
     async writeValueWithResponse(bytes) {
-      mock.maxPacket = Math.max(mock.maxPacket, bytes.length);
-      if (bytes.length > mock.mtu - 3) throw Error('ATT packet too big');
-      const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-        op = v.getUint8(0),
-        at = v.getUint32(3, true);
-      seq = v.getUint16(1, true);
-      const data = Array.from(bytes.subarray(7));
-      if (op === 4) {
-        if (at === 0) mock.header = [];
-        mock.header.push(...data);
-        emit(0, mock.header.length);
-      } else if (op === 1) {
-        request = JSON.parse(new TextDecoder().decode(new Uint8Array(mock.header)));
-        mock.data = [];
-        emit(0, 0);
-      } else if (op === 2) {
-        if (at !== mock.data.length) throw Error('Offset mismatch');
-        mock.data.push(...data);
-        emit(0, mock.data.length);
-      } else if (op === 3) {
-        if (request.path === '/api/assets') {
-          mock.uploads.push(new Uint8Array(mock.data));
-          return answer(201, { id: 'abcdef01' });
-        }
-        finish();
-      } else if (op === 5) send();
+      if (gattWriteBusy) throw Error('GATT operation already in progress');
+      gattWriteBusy = true;
+      try {
+        mock.maxPacket = Math.max(mock.maxPacket, bytes.length);
+        if (bytes.length > mock.mtu - 3) throw Error('ATT packet too big');
+        const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+          op = v.getUint8(0),
+          at = v.getUint32(3, true);
+        seq = v.getUint16(1, true);
+        const data = Array.from(bytes.subarray(7));
+        if (op === 4) {
+          if (at === 0) mock.header = [];
+          mock.header.push(...data);
+          emit(0, mock.header.length);
+        } else if (op === 1) {
+          request = JSON.parse(new TextDecoder().decode(new Uint8Array(mock.header)));
+          mock.data = [];
+          emit(0, 0);
+        } else if (op === 2) {
+          if (at !== mock.data.length) throw Error('Offset mismatch');
+          mock.data.push(...data);
+          emit(0, mock.data.length);
+        } else if (op === 3) {
+          if (request.path === '/api/assets') {
+            mock.uploads.push(new Uint8Array(mock.data));
+            return answer(201, { id: 'abcdef01' });
+          }
+          finish();
+        } else if (op === 5) send();
+      } finally {
+        // Deliver notifications before Chrome's write promise settles.
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        gattWriteBusy = false;
+      }
     },
   };
   const device = new EventTarget();

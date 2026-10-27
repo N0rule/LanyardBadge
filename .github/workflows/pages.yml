@@ -2,6 +2,7 @@ name: Build and publish LanyardBadge
 on:
   push:
     branches: [main, rewrite/lanyardbadge-2]
+    paths-ignore: ["docs/**", "README.md"]
   workflow_dispatch:
 permissions:
   contents: read

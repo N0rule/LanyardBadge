@@ -127,6 +127,7 @@ test('simulated GATT: minimum MTU, upload/export consistency, settings and recon
   await page.locator('#device-open').click();
   await page.locator('#screen-timeout').selectOption('30');
   await page.getByText('Save device settings', { exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText('Device settings saved.');
   expect(await page.evaluate(() => bleMock.status.screenTimeout)).toBe(30);
   await page.locator('#disconnect').click();
   await expect(page.locator('#connection')).toHaveText('Disconnected');
@@ -202,4 +203,24 @@ test('deleting final saved card returns an editable draft without a device place
   expect(await page.evaluate(() => bleMock.deck.cards.length)).toBe(0);
   await expect(page.locator('#title')).toHaveValue('My artwork');
   expect(errors).toEqual([]);
+});
+
+test('response timeout measures inactivity instead of total download duration', async ({
+  page,
+}) => {
+  await setup(page);
+  await connect(page);
+  await page.clock.install();
+  await page.evaluate(() => {
+    bleMock.replyDelay = 1000;
+    globalThis.slowDone = false;
+    globalThis.slowError = '';
+    badgeDevice
+      .getStatus()
+      .then(() => (slowDone = true))
+      .catch((e) => (slowError = e.message));
+  });
+  await page.clock.runFor(60000);
+  expect(await page.evaluate(() => slowError)).toBe('');
+  expect(await page.evaluate(() => slowDone)).toBe(true);
 });

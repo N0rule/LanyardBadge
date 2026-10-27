@@ -124,45 +124,58 @@
       b.set(data, 7);
       return b;
     }
-    async write(op, offset, data) {
-      await this.rx.writeValueWithResponse(this.frame(op, this.sequence, offset, data));
+    write(op, offset, data) {
+      const packet = this.frame(op, this.sequence, offset, data),
+        rx = this.rx;
+      // Notifications can complete a response before the ACK write promise resolves.
+      // Serialize ALL writes, including response ACKs, independently of requests.
+      const operation = (this.writeTail || Promise.resolve())
+        .catch(() => {})
+        .then(() => rx.writeValueWithResponse(packet));
+      this.writeTail = operation;
+      return operation;
     }
     wait(op, offset) {
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          this.pending = null;
-          reject(Error('The badge timed out. Reconnect and retry; your edits are kept.'));
-        }, 15000);
-        this.pending = {
+        let timer;
+        const pending = {
           op,
           offset,
-          resolve: (v) => {
+          touch: () => {
             clearTimeout(timer);
-            this.pending = null;
-            resolve(v);
+            timer = setTimeout(
+              () =>
+                pending.reject(
+                  Error('The badge timed out. Reconnect and retry; your edits are kept.'),
+                ),
+              15000,
+            );
           },
-          reject: (e) => {
+          resolve: (value) => {
             clearTimeout(timer);
-            this.pending = null;
-            reject(e);
+            if (this.pending === pending) this.pending = null;
+            resolve(value);
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            if (this.pending === pending) this.pending = null;
+            reject(error);
           },
         };
+        this.pending = pending;
+        pending.touch();
       });
     }
     async acknowledged(op, offset, data, expected) {
       const ack = this.wait(0, expected);
-      try {
-        await this.write(op, offset, data);
-      } catch (e) {
-        this.pending?.reject(e);
-      }
-      return ack;
+      await Promise.all([this.write(op, offset, data), ack]);
     }
     receive(v) {
       if (v.byteLength < 7 || v.getUint16(1, true) !== this.sequence) return;
       const op = v.getUint8(0),
         at = v.getUint32(3, true),
         p = this.pending;
+      p?.touch();
       if (op === 0) {
         if (p?.op === 0 && at === p.offset) p.resolve();
         return;
@@ -240,12 +253,7 @@
           progress?.(Math.floor(((at + part.length) / bytes.length) * 100));
         }
         const response = this.wait(3, bytes.length);
-        try {
-          await this.write(3, bytes.length);
-        } catch (e) {
-          this.pending?.reject(e);
-        }
-        const r = await response;
+        const [, r] = await Promise.all([this.write(3, bytes.length), response]);
         if (!r.ok) {
           let message = 'Badge request failed';
           try {
