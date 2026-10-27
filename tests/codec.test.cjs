@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-require('../web/app.js');
+require('../web/codec.js');
 const { encodeBMP, decodeBMP, cropRect, validateCard } = global.BadgeCodec;
 const rgba = new Uint8ClampedArray(240 * 320 * 4);
 for (let y = 0; y < 320; y++)
@@ -46,4 +46,30 @@ assert.throws(() => validateCard({ ...c, url: 'javascript:alert(1)' }));
 assert.throws(() => validateCard({ ...c, name: '中文' }));
 console.log(
   'Browser codec: RGB565 precision, row order, BMP validation, crop math and text validation passed',
+);
+require('../web/artwork.js');
+const { geometry, move } = global.BadgeArtwork;
+const state = { rotation: 0, fit: 'cover', zoom: 1, x: 0, y: 0 };
+const original = geometry(640, 480, state);
+for (let i = 0; i < 4; i++) state.rotation = (state.rotation + 90) % 360;
+assert.deepEqual(geometry(640, 480, state), original);
+state.rotation = 90;
+assert.equal(geometry(640, 480, state).w, 240);
+for (const angle of [0, 90, 180, 270])
+  for (const fit of ['cover', 'contain'])
+    for (const zoom of [1, 1.25, 3]) {
+      Object.assign(state, { rotation: angle, fit, zoom, x: 0, y: 0 });
+      const g = geometry(713, 391, state);
+      move(state, g, 10000, -10000);
+      const moved = geometry(713, 391, state);
+      if (fit === 'cover') {
+        assert.ok(moved.cx - moved.w / 2 <= 0.00001);
+        assert.ok(moved.cy - moved.h / 2 <= 0.00001);
+        assert.ok(moved.cx + moved.w / 2 >= 240 - 0.00001);
+        assert.ok(moved.cy + moved.h / 2 >= 320 - 0.00001);
+      }
+      assert.ok(Math.abs(state.x) <= 100 && Math.abs(state.y) <= 100);
+    }
+console.log(
+  'Artwork: rotation cycles, fit/fill, movement limits across zoom and orientation passed',
 );

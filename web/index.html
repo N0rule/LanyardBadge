@@ -3,245 +3,260 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#f3f6fc" />
-    <title>Lanyard · Badge studio</title>
-    <link rel="stylesheet" href="/style.css" />
-    <script defer src="/qrcode.js"></script>
-    <script defer src="/app.js"></script>
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#2151dc" />
+    <title>LanyardBadge — Artwork you can wear</title>
+    <script src="./theme.js"></script>
+    <link rel="stylesheet" href="./style.css" />
+    <script defer src="./codec.js"></script>
+    <script defer src="./artwork.js"></script>
+    <script defer src="./transport.js"></script>
+    <script defer src="./app.js"></script>
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="/" aria-label="Lanyard badge studio"
-        ><span class="brand-icon" aria-hidden="true"></span
-        ><span>Lanyard<span class="brand-sub">Badge studio</span></span></a
-      >
+      <a class="brand" href="./"><span class="brand-mark" aria-hidden="true"></span>LanyardBadge</a>
       <div class="top-actions">
-        <span id="connection" role="status">Connecting</span
-        ><button id="show-badge" class="secondary">Show badge</button
-        ><button id="device-open" class="quiet">Device settings</button>
+        <span id="connection" role="status">Disconnected</span>
+        <button id="connect" class="primary">Connect your badge</button
+        ><button id="device-open" disabled>Device settings</button>
+        <label class="theme-label"
+          >Theme<select id="theme" aria-label="Theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select></label
+        >
       </div>
     </header>
-    <section id="connection-guide" class="connection-guide" hidden aria-label="Owner connection">
+    <section id="welcome" class="welcome">
       <div>
-        <strong id="connection-title">Keep your phone online</strong>
-        <p id="connection-help">
-          Connect the badge to your Wi-Fi or phone hotspot once. Then edit without leaving your
-          internet connection.
+        <h1>Art goes<br />where you go.</h1>
+        <p>A tiny canvas for your everyday. Choose artwork, make it yours, and wear it.</p>
+        <p class="hint">
+          Already running LanyardBadge? Connect above. New CYD2USB?
+          <button id="install-open" class="text-button">Install LanyardBadge</button> through USB
+          first.
         </p>
-        <a id="network-link" hidden target="_blank" rel="noopener">Open editor on your network</a>
       </div>
-      <button id="connect-network" class="secondary">Connect my Wi-Fi / hotspot</button>
+      <div class="welcome-guide">
+        <strong>Scan. Connect. Create. Upload. Wear.</strong>
+        <p id="compatibility">
+          Bluetooth works in supported Chromium browsers on desktop and Android. iOS Safari is
+          unsupported. No account or Wi-Fi setup needed.
+        </p>
+      </div>
     </section>
-    <main class="studio" id="studio" inert>
+    <main class="studio" id="studio">
       <aside class="gallery">
         <div class="section-head">
           <h2>Your cards</h2>
           <span id="card-count">0 / 10</span>
         </div>
-        <p class="hint">A small collection. Always with you.</p>
+        <p class="hint" id="gallery-hint">
+          Connect to see your saved collection. You can prepare a card now.
+        </p>
         <div id="card-list" class="card-list"></div>
-        <button id="new-card" class="secondary full">+ New card</button>
+        <button id="new-card" class="full">+ New card</button>
         <div class="gallery-tools">
-          <button id="move-up" class="quiet" aria-label="Move card earlier">Move up</button
-          ><button id="move-down" class="quiet" aria-label="Move card later">Move down</button
+          <button id="move-up" aria-label="Move card earlier">↑</button
+          ><button id="move-down" aria-label="Move card later">↓</button
           ><button id="delete-card" class="danger">Delete</button>
         </div>
         <div class="storage">
-          <span id="storage-label">Reading storage</span
-          ><progress id="storage-meter" max="100" value="0">0%</progress
-          ><button id="reload" class="text-button">Reload from badge</button>
+          <span id="storage-label">Stored on your badge</span
+          ><progress id="storage-meter" max="100" value="0" aria-label="Storage used"></progress
+          ><button id="reload" class="text-button">Reload collection</button>
         </div>
       </aside>
-      <section class="preview-space" aria-labelledby="preview-heading">
+      <section class="preview-space" aria-label="Artwork preview">
         <div class="preview-heading">
-          <h1 id="preview-heading">Make it yours.</h1>
-          <p>Choose a card. Give it a little personality.</p>
+          <h2 id="editing-title">Your next favorite.</h2>
+          <p>Drag your artwork to find its place.</p>
         </div>
         <div class="badge-object">
-          <div class="lanyard-slot" aria-hidden="true"></div>
-          <canvas id="preview" width="240" height="320" aria-label="Portrait badge preview"
-            >A 240 by 320 pixel preview of your badge.</canvas
-          >
-          <div class="badge-chin" aria-hidden="true"></div>
+          <canvas
+            id="preview"
+            width="240"
+            height="320"
+            tabindex="0"
+            aria-label="Badge artwork. Drag to reposition or use position controls."
+          ></canvas>
         </div>
         <div class="preview-caption">
-          <span id="save-state">All changes saved</span><span>240 × 320</span>
+          <span id="save-state">Choose artwork to begin</span><span>240 × 320</span>
         </div>
         <div class="publish-actions">
-          <button id="save-card" class="primary">Save to badge</button
-          ><button id="show-card" class="secondary">Show this card</button>
+          <button id="save-card" class="primary">Upload card</button
+          ><button id="show-card">Show this card</button>
+        </div>
+        <div class="upload-state" id="upload-state" role="status" hidden>
+          <span id="upload-label"></span><progress id="upload-progress" max="100"></progress>
         </div>
         <p class="preview-note">
           Swipe on your badge to switch cards.<br />Hold the screen to open its menu.
         </p>
       </section>
-      <section class="inspector" aria-label="Card controls">
-        <div class="section-head">
-          <h2>Edit card</h2>
-          <span id="editing-title"></span>
-        </div>
+      <section class="inspector" aria-label="Edit card">
+        <h2>Edit card</h2>
         <form id="card-form">
-          <label>Card title<input id="title" maxlength="48" required autocomplete="off" /></label
-          ><label
-            >Layout<select id="mode">
-              <option value="profile">Profile badge</option>
-              <option value="artwork">Full-screen artwork</option>
-              <option value="custom">Custom card</option>
-            </select></label
-          >
-          <fieldset>
-            <legend>Artwork</legend>
-            <label class="file-drop" for="image-file"
-              ><span>Choose an image</span><small>Photo, illustration, or something you made</small
-              ><input
-                type="file"
-                id="image-file"
-                accept="image/jpeg,image/png,image/webp,image/bmp"
-            /></label>
-            <div id="crop-controls" hidden>
-              <div class="form-row">
-                <label
-                  >Fit<select id="fit">
-                    <option value="cover">Fill & crop</option>
-                    <option value="contain">Fit whole image</option>
-                  </select></label
-                ><button id="remove-image" type="button" class="quiet">Remove image</button>
-              </div>
-              <label>Zoom<input type="range" id="zoom" min="100" max="300" value="100" /></label
-              ><label
-                >Horizontal position<input
-                  type="range"
-                  id="crop-x"
-                  min="-100"
-                  max="100"
-                  value="0" /></label
-              ><label
-                >Vertical position<input type="range" id="crop-y" min="-100" max="100" value="0"
-              /></label>
-            </div>
-          </fieldset>
-          <div id="profile-fields">
-            <label>Name<input id="name" maxlength="48" autocomplete="off" /></label
-            ><label>About you<textarea id="description" maxlength="96" rows="3"></textarea></label>
-          </div>
-          <div id="link-field">
+          <label
+            >Card title<input
+              id="title"
+              maxlength="48"
+              required
+              autocomplete="off"
+              value="My artwork"
+          /></label>
+          <p id="legacy-note" class="hint" hidden>
+            This older card stays available on your badge. Choose artwork to replace its layout when
+            you upload.
+          </p>
+          <label class="file-drop"
+            >Choose artwork<span>PNG, JPEG, WebP or BMP</span
+            ><input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"
+          /></label>
+          <fieldset id="crop-controls" disabled>
+            <legend>Make it fit</legend>
             <label
-              >QR link<input
-                id="url"
-                type="url"
-                maxlength="100"
-                placeholder="https://your.site"
-                inputmode="url"
-            /></label>
-            <p class="hint">Up to 100 characters. Keep links short for easier scanning.</p>
-          </div>
-          <fieldset>
-            <legend>Colors</legend>
-            <div class="color-row">
-              <label>Background<input id="background" type="color" /></label
-              ><label>Text<input id="foreground" type="color" /></label
-              ><label>Accent<input id="accent" type="color" /></label>
+              >Fit<select id="fit">
+                <option value="cover">Fill & crop</option>
+                <option value="contain">Fit whole image</option>
+              </select></label
+            >
+            <div class="rotation-row">
+              <button id="rotate-left" type="button" aria-label="Rotate artwork left by 90 degrees">
+                ↶ Rotate left</button
+              ><button
+                id="rotate-right"
+                type="button"
+                aria-label="Rotate artwork right by 90 degrees"
+              >
+                ↷ Rotate right
+              </button>
             </div>
-          </fieldset>
-          <div id="custom-fields" hidden>
-            <fieldset>
-              <legend>Text elements</legend>
-              <div id="texts"></div>
-              <button id="add-text" type="button" class="secondary full">+ Add text</button>
-            </fieldset>
-            <fieldset>
-              <legend>Graphic elements</legend>
-              <div id="shapes"></div>
-              <button id="add-shape" type="button" class="secondary full">+ Add shape</button>
-            </fieldset>
+            <label
+              >Zoom
+              <input
+                id="zoom-value"
+                class="percentage"
+                type="number"
+                min="100"
+                max="300"
+                step="1"
+                aria-label="Zoom percent" /><span class="unit">%</span
+              ><input id="zoom" type="range" min="100" max="300" value="100" step="1"
+            /></label>
+            <label
+              >Horizontal <output id="crop-x-output">0%</output
+              ><input id="crop-x" type="range" min="-100" max="100" value="0" step="1"
+            /></label>
+            <label
+              >Vertical <output id="crop-y-output">0%</output
+              ><input id="crop-y" type="range" min="-100" max="100" value="0" step="1"
+            /></label>
             <p class="hint">
-              Tap a text or graphic element in the preview and drag to position it.
+              0% centers the artwork. −100% and +100% are the available movement extremes, not
+              percentages of image pixels.
             </p>
-          </div>
-          <p class="hint">Text currently supports English letters, numbers and punctuation.</p>
+            <button id="reset-transform" type="button" class="text-button">
+              Reset position, zoom & rotation
+            </button>
+          </fieldset>
+          <label class="color-label"
+            >Letterbox color<input id="background" type="color" value="#000000"
+          /></label>
         </form>
       </section>
     </main>
-    <dialog id="pair-dialog" class="pair-dialog">
+    <dialog id="pair-dialog">
       <form id="pair-form">
-        <div class="brand-icon" aria-hidden="true"></div>
-        <h1>Your badge,<br />your space.</h1>
-        <p>Enter the pairing password shown on your badge’s “Connect to edit” screen.</p>
+        <h2>Connect your badge</h2>
+        <p>
+          Scan the QR on your badge, or enter its pairing key here. The key stays in this tab until
+          you close it.
+        </p>
         <label
-          >Pairing password<input
+          >Pairing key<input
             id="pair-password"
             type="password"
-            autocomplete="current-password"
             required
-            maxlength="64" /></label
-        ><button class="primary full" type="submit">Connect to badge</button>
-        <p id="pair-error" class="error" role="alert"></p>
-        <p class="hint">No account. No cloud. Just your badge.</p>
+            maxlength="16"
+            autocomplete="off"
+        /></label>
+        <p id="pair-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="pair-cancel" type="button">Cancel</button
+          ><button class="primary">Pair badge</button>
+        </div>
       </form>
     </dialog>
-    <dialog id="device-dialog" class="device-dialog">
+    <dialog id="device-dialog">
       <div class="section-head">
         <h2>Device settings</h2>
-        <button id="device-close" class="quiet" aria-label="Close settings">Close</button>
+        <button id="device-close">Close</button>
       </div>
       <form id="settings-form">
         <label
-          >Brightness <output id="brightness-output">65%</output
-          ><input id="brightness" type="range" min="5" max="100" value="65" /></label
-        ><label class="check"
-          ><input type="checkbox" id="autoplay" /> Automatically switch cards</label
+          >Brightness <output id="brightness-output"></output
+          ><input id="brightness" type="range" min="5" max="100"
+        /></label>
+        <label
+          >Screen off after<select id="screen-timeout">
+            <option value="0">Never</option>
+            <option value="15">15 seconds</option>
+            <option value="30">30 seconds</option>
+            <option value="60">1 minute</option>
+            <option value="120">2 minutes</option>
+            <option value="300">5 minutes</option>
+            <option value="600">10 minutes</option>
+          </select></label
+        >
+        <label class="check"><input id="autoplay" type="checkbox" />Slideshow</label
         ><label
-          >Switch interval (seconds)<input
+          >Seconds between cards<input
             id="interval"
             type="number"
             min="5"
             max="3600"
-            value="15"
             required /></label
-        ><label>Default card<select id="default-card"></select></label
-        ><label
-          >Portrait orientation<select id="rotation">
-            <option value="0">Portrait 0°</option>
-            <option value="2">Portrait 180°</option>
-          </select></label
         ><button class="primary full">Save device settings</button>
       </form>
-      <button id="calibrate-touch" class="secondary full">Calibrate touchscreen</button>
-      <p class="hint">Then touch and lift at each crosshair on your badge.</p>
-      <details id="network-details">
-        <summary>Wi-Fi network</summary>
-        <p class="hint">
-          Use your home Wi-Fi or your phone’s hotspot. Your phone keeps internet access, and the
-          badge reconnects automatically. Use a 2.4 GHz network.
-        </p>
-        <form id="network-form">
-          <label>Network name<input id="wifi-ssid" maxlength="32" autocomplete="off" /></label
-          ><label
-            >Wi-Fi password<input
-              id="wifi-password"
-              type="password"
-              maxlength="63"
-              autocomplete="new-password" /></label
-          ><button class="secondary full">Save network</button>
-          <p id="network-status" class="hint" role="status"></p>
-          <p class="hint">
-            For a phone hotspot: save its name and password here, leave the badge Wi-Fi, then enable
-            your hotspot. Hold the badge screen and choose “Connect to editor” to scan its new
-            address. On iPhone, enable “Maximize Compatibility”.
-          </p>
-          <p class="hint">Leave the name empty to forget the saved network.</p>
-        </form>
-      </details>
       <details>
-        <summary>Storage & diagnostics</summary>
+        <summary>Advanced</summary>
         <pre id="system-info"></pre>
-        <button id="collect-garbage" class="secondary full">Clean unused backgrounds</button>
+        <button id="calibrate-touch">Calibrate touchscreen</button>
         <p class="hint">
-          Touch calibration and the color test are in the badge’s Device information menu.
+          Touch each crosshair on the badge. If touch becomes unusable, hold its BOOT button for 6
+          seconds.
         </p>
+        <button id="collect-garbage">Clean unused artwork</button>
       </details>
-      <button id="end-session" class="quiet full">Sign out & close badge hotspot</button>
+      <button id="disconnect" class="full">Disconnect badge</button>
     </dialog>
-    <div id="toast" class="toast" role="status" hidden></div>
+    <dialog id="install-dialog">
+      <div class="section-head">
+        <h2>Install LanyardBadge</h2>
+        <button id="install-close">Close</button>
+      </div>
+      <p>For the 4 MB CYD2USB with an ST7789 display and USB connectors at the bottom.</p>
+      <label
+        >Operation<select id="install-mode">
+          <option value="update">Update an existing LanyardBadge 2.x</option>
+          <option value="fresh">Install on a new, blank board</option>
+        </select></label
+      >
+      <p id="install-warning">
+        Updates write only the application. Cards and settings stay in place. The existing layout
+        must have a 2 MiB app at 0x10000 and storage at 0x210000. Other layouts need a flash backup
+        and manual migration.
+      </p>
+      <p id="install-status" role="status">
+        Use a desktop browser with Web Serial and a USB data cable. Close other serial tools first.
+      </p>
+      <div id="installer"></div>
+      <p class="hint">USB installation is supported. Wireless firmware updates are unavailable.</p>
+    </dialog>
+    <div id="toast" role="status" class="toast" hidden></div>
   </body>
 </html>

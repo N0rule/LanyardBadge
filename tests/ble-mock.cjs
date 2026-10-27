@@ -1,0 +1,157 @@
+// GATT peripheral simulation, not evidence of a radio connection.
+function installMock() {
+  const base = {
+    id: '00000001',
+    title: 'First card',
+    mode: 'artwork',
+    image: '',
+    name: '',
+    description: '',
+    url: '',
+    background: 0,
+    foreground: 0xffffff,
+    accent: 0x2151dc,
+    texts: [],
+    shapes: [],
+  };
+  const mock = (globalThis.bleMock = {
+    deck: { version: 2, revision: 1, cards: [base] },
+    status: {
+      selected: 0,
+      activeCard: base.id,
+      storageReady: true,
+      storageUsed: 0,
+      storageTotal: 2031616,
+      brightness: 65,
+      screenTimeout: 120,
+      interval: 15,
+      autoplay: false,
+      rotation: 0,
+      defaultCard: base.id,
+    },
+    uploads: [],
+    failCommit: false,
+    mtu: 23,
+    header: [],
+    data: [],
+    maxPacket: 0,
+  });
+  let seq = 0,
+    request,
+    reply,
+    replyAt = 0;
+  const tx = new EventTarget();
+  tx.startNotifications = async () => tx;
+  tx.readValue = async () => new DataView(Uint8Array.of(1, mock.mtu & 255, mock.mtu >> 8).buffer);
+  const emit = (op, at, data = []) => {
+    const b = new Uint8Array(7 + data.length),
+      v = new DataView(b.buffer);
+    b[0] = op;
+    v.setUint16(1, seq, true);
+    v.setUint32(3, at, true);
+    b.set(data, 7);
+    tx.value = v;
+    const e = new Event('characteristicvaluechanged');
+    tx.dispatchEvent(e);
+  };
+  function send() {
+    if (replyAt < reply.length) {
+      const n = Math.min(13, reply.length - replyAt);
+      const at = replyAt;
+      replyAt += n;
+      emit(2, at, reply.subarray(at, replyAt));
+    } else emit(3, reply.length);
+  }
+  function answer(code, body) {
+    reply = body instanceof Uint8Array ? body : new TextEncoder().encode(JSON.stringify(body));
+    replyAt = 0;
+    emit(1, reply.length, [code & 255, code >> 8]);
+    send();
+  }
+  function finish() {
+    const body = request.length
+      ? JSON.parse(new TextDecoder().decode(new Uint8Array(mock.data)))
+      : {};
+    if (request.path === '/api/pair')
+      return answer(
+        body.password === 'abcdefghijklmnop' ? 200 : 401,
+        body.password === 'abcdefghijklmnop'
+          ? { token: 'a'.repeat(64) }
+          : { error: 'Wrong pairing key' },
+      );
+    if (request.path === '/api/cards' && request.method === 'GET') return answer(200, mock.deck);
+    if (request.path === '/api/status') return answer(200, mock.status);
+    if (request.path === '/api/cards') {
+      if (mock.failCommit) {
+        mock.failCommit = false;
+        return answer(507, { error: 'Metadata commit failed' });
+      }
+      mock.deck = body;
+      mock.deck.revision++;
+      return answer(200, mock.deck);
+    }
+    if (request.path === '/api/settings') {
+      Object.assign(mock.status, body);
+      return answer(200, mock.status);
+    }
+    if (request.path === '/api/select') {
+      mock.status.selected = mock.deck.cards.findIndex((c) => c.id === body.id);
+      mock.status.activeCard = body.id;
+      return answer(200, mock.status);
+    }
+    return answer(200, { ok: true });
+  }
+  const rx = {
+    async writeValueWithResponse(bytes) {
+      mock.maxPacket = Math.max(mock.maxPacket, bytes.length);
+      if (bytes.length > mock.mtu - 3) throw Error('ATT packet too big');
+      const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+        op = v.getUint8(0),
+        at = v.getUint32(3, true);
+      seq = v.getUint16(1, true);
+      const data = Array.from(bytes.subarray(7));
+      if (op === 4) {
+        if (at === 0) mock.header = [];
+        mock.header.push(...data);
+        emit(0, mock.header.length);
+      } else if (op === 1) {
+        request = JSON.parse(new TextDecoder().decode(new Uint8Array(mock.header)));
+        mock.data = [];
+        emit(0, 0);
+      } else if (op === 2) {
+        if (at !== mock.data.length) throw Error('Offset mismatch');
+        mock.data.push(...data);
+        emit(0, mock.data.length);
+      } else if (op === 3) {
+        if (request.path === '/api/assets') {
+          mock.uploads.push(new Uint8Array(mock.data));
+          return answer(201, { id: 'abcdef01' });
+        }
+        finish();
+      } else if (op === 5) send();
+    },
+  };
+  const device = new EventTarget();
+  device.gatt = {
+    connected: false,
+    async connect() {
+      this.connected = true;
+      return {
+        getPrimaryService: async () => ({
+          getCharacteristic: async (uuid) => (uuid.includes('1001-') ? rx : tx),
+        }),
+      };
+    },
+    disconnect() {
+      if (this.connected) {
+        this.connected = false;
+        device.dispatchEvent(new Event('gattserverdisconnected'));
+      }
+    },
+  };
+  Object.defineProperty(navigator, 'bluetooth', {
+    value: { requestDevice: async () => device },
+    configurable: true,
+  });
+}
+module.exports = installMock;

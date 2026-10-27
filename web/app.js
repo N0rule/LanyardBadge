@@ -1,108 +1,68 @@
 (() => {
   'use strict';
-  const W = 240,
-    H = 320,
-    BMP_SIZE = 153666;
-  const hex = (n) => '#' + n.toString(16).padStart(6, '0');
-  const color = (s) => parseInt(s.slice(1), 16);
-  function cropRect(iw, ih, w, h, fit = 'cover', zoom = 1, x = 0, y = 0) {
-    const scale = (fit === 'contain' ? Math.min(w / iw, h / ih) : Math.max(w / iw, h / ih)) * zoom;
-    const dw = iw * scale,
-      dh = ih * scale;
-    return { x: ((w - dw) * (x + 100)) / 200, y: ((h - dh) * (y + 100)) / 200, w: dw, h: dh };
-  }
-  function encodeBMP(rgba) {
-    if (rgba.length !== W * H * 4) throw Error('A 240 × 320 image is required');
-    const buffer = new ArrayBuffer(BMP_SIZE),
-      v = new DataView(buffer);
-    v.setUint8(0, 66);
-    v.setUint8(1, 77);
-    v.setUint32(2, BMP_SIZE, true);
-    v.setUint32(10, 66, true);
-    v.setUint32(14, 40, true);
-    v.setUint32(18, W, true);
-    v.setUint32(22, H, true);
-    v.setUint16(26, 1, true);
-    v.setUint16(28, 16, true);
-    v.setUint32(30, 3, true);
-    v.setUint32(34, W * H * 2, true);
-    v.setUint32(54, 0xf800, true);
-    v.setUint32(58, 0x07e0, true);
-    v.setUint32(62, 0x001f, true);
-    for (let y = 0; y < H; y++)
-      for (let x = 0; x < W; x++) {
-        const i = (y * W + x) * 4,
-          px = ((rgba[i] >> 3) << 11) | ((rgba[i + 1] >> 2) << 5) | (rgba[i + 2] >> 3);
-        v.setUint16(66 + ((H - 1 - y) * W + x) * 2, px, true);
-      }
-    return buffer;
-  }
-  function decodeBMP(buffer) {
-    const v = new DataView(buffer);
-    if (
-      buffer.byteLength !== BMP_SIZE ||
-      v.getUint16(0, true) !== 0x4d42 ||
-      v.getUint32(18, true) !== W ||
-      v.getUint32(22, true) !== H ||
-      v.getUint16(28, true) !== 16 ||
-      v.getUint32(10, true) !== 66 ||
-      v.getUint32(54, true) !== 0xf800 ||
-      v.getUint32(58, true) !== 0x07e0 ||
-      v.getUint32(62, true) !== 31
-    )
-      throw Error('Invalid badge background');
-    const out = new Uint8ClampedArray(W * H * 4);
-    for (let y = 0; y < H; y++)
-      for (let x = 0; x < W; x++) {
-        const p = v.getUint16(66 + ((H - 1 - y) * W + x) * 2, true),
-          i = (y * W + x) * 4;
-        out[i] = Math.round((((p >> 11) & 31) * 255) / 31);
-        out[i + 1] = Math.round((((p >> 5) & 63) * 255) / 63);
-        out[i + 2] = Math.round(((p & 31) * 255) / 31);
-        out[i + 3] = 255;
-      }
-    return out;
-  }
-  function validateCard(c) {
-    for (const [key, max] of Object.entries({ title: 48, name: 48, description: 96, url: 100 })) {
-      if (typeof c[key] !== 'string' || c[key].length > max || /[^\x20-\x7e\n]/.test(c[key]))
-        throw Error(key + ': use English letters, numbers and punctuation');
-    }
-    if (!c.title.trim()) throw Error('Give your card a title');
-    if (c.url && !/^https?:\/\/[^\s]+$/.test(c.url))
-      throw Error('QR link must begin with https:// or http:// and contain no spaces');
-    if (c.texts.length > 4 || c.shapes.length > 4)
-      throw Error('Use up to four text and four graphic elements');
-    for (const t of c.texts)
-      if (!t.text || t.text.length > 96 || /[^\x20-\x7e\n]/.test(t.text))
-        throw Error('Text elements need 1–96 supported characters');
-  }
-  globalThis.BadgeCodec = { cropRect, encodeBMP, decodeBMP, validateCard };
-  if (typeof document === 'undefined') return;
   const $ = (id) => document.getElementById(id),
+    { BluetoothTransport } = BadgeTransport;
+  const transport = (globalThis.badgeDevice = new BluetoothTransport());
+  const states = new Map(),
     canvas = $('preview'),
-    ctx = canvas.getContext('2d');
-  let token = sessionStorage.getItem('badge-token') || '',
-    deck = { version: 2, revision: 0, cards: [] },
+    context = canvas.getContext('2d');
+  const hex = (n) => '#' + n.toString(16).padStart(6, '0');
+  const blank = () => ({
+    id: crypto.getRandomValues(new Uint32Array(1))[0].toString(16).padStart(8, '0'),
+    title: 'My artwork',
+    mode: 'artwork',
+    image: '',
+    name: '',
+    description: '',
+    url: '',
+    background: 0,
+    foreground: 0xffffff,
+    accent: 0x2151dc,
+    texts: [],
+    shapes: [],
+  });
+  let deck = { version: 2, revision: 0, cards: [blank()] },
     selected = 0,
     status = {},
-    dirty = false,
+    connected = false,
     busy = false,
+    changed = false,
     toastTimer,
-    pollTimer;
-  const imageStates = new Map(),
-    imageLoads = new Map();
-  let drag = null;
+    frame = 0,
+    drag = null;
+  let key = '',
+    intendedName = '';
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  key = fragment.get('key') || '';
+  intendedName = fragment.get('badge') || '';
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   const card = () => deck.cards[selected];
-  function toast(message, error = false) {
+  function toast(message) {
+    clearTimeout(toastTimer);
     $('toast').textContent = message;
     $('toast').hidden = false;
-    $('toast').classList.toggle('error-toast', error);
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => ($('toast').hidden = true), error ? 7000 : 3500);
+    toastTimer = setTimeout(() => ($('toast').hidden = true), 7000);
   }
-  function setBusy(value, label = 'Saving…') {
+  function dirty(image = false) {
+    changed = true;
+    $('save-state').textContent = 'Unsaved changes';
+    $('save-state').classList.add('unsaved');
+    const s = states.get(card().id);
+    if (image && s) {
+      s.dirty = true;
+      s.uploadedId = null;
+    }
+    schedule();
+  }
+  function progress(label, percent) {
+    $('upload-state').hidden = false;
+    $('upload-label').textContent = label;
+    if (percent === undefined) $('upload-progress').removeAttribute('value');
+    else $('upload-progress').value = percent;
+  }
+  function lock(value) {
     busy = value;
+    $('card-form').inert = value;
     for (const id of [
       'save-card',
       'show-card',
@@ -111,640 +71,366 @@
       'move-up',
       'move-down',
       'reload',
+      'connect',
+      'device-open',
     ])
       $(id).disabled = value;
-    $('save-card').textContent = value ? label : 'Save to badge';
-    $('card-form').inert = value;
+    $('device-open').disabled = value || !connected;
+    $('show-card').disabled = value || !connected;
   }
-  function markDirty(background = false) {
-    dirty = true;
-    $('save-state').textContent = 'Unsaved changes';
-    if (background && imageStates.has(card()?.id)) imageStates.get(card().id).dirty = true;
-    renderPreview();
+  function sync() {
+    const s = states.get(card().id);
+    $('crop-controls').disabled = !s;
+    if (!s) return;
+    $('fit').value = s.fit;
+    $('zoom').value = Math.round(s.zoom * 100);
+    $('zoom-value').value = Math.round(s.zoom * 100);
+    $('crop-x').value = Math.round(s.x);
+    $('crop-y').value = Math.round(s.y);
+    for (const [id, value] of [
+      ['crop-x-output', s.x],
+      ['crop-y-output', s.y],
+    ])
+      $(id).textContent = (Math.round(value) > 0 ? '+' : '') + Math.round(value) + '%';
   }
-  async function api(path, { method = 'GET', body, raw = false } = {}) {
-    const headers = {};
-    if (token) headers.Authorization = 'Bearer ' + token;
-    if (body !== undefined) headers['Content-Type'] = raw ? 'image/bmp' : 'application/json';
-    const controller = new AbortController(),
-      timeout = setTimeout(() => controller.abort(), 45000);
-    let response;
-    try {
-      response = await fetch(path, {
-        method,
-        headers,
-        body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
-        signal: controller.signal,
-        cache: 'no-store',
+  function schedule() {
+    if (!frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        draw();
       });
-    } catch (e) {
-      throw Error(
-        e.name === 'AbortError'
-          ? 'The badge did not respond. Check its connection and retry.'
-          : 'Could not reach the badge. Reconnect to its Wi-Fi and open configuration.',
-      );
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (response.status === 401 && path !== '/api/pair') {
-      token = '';
-      sessionStorage.removeItem('badge-token');
-      showPair();
-    }
-    if (!response.ok) {
-      let message = 'Request failed (' + response.status + ')';
-      try {
-        message = (await response.json()).error || message;
-      } catch {}
-      throw Error(message);
-    }
-    return response;
   }
-  async function json(path, options) {
-    return (await api(path, options)).json();
-  }
-  function showPair() {
-    clearInterval(pollTimer);
-    $('studio').inert = true;
-    $('connection').textContent = 'Pairing needed';
-    if ($('device-dialog').open) $('device-dialog').close();
-    if (!$('pair-dialog').open) $('pair-dialog').showModal();
-  }
-  function currentState() {
-    return imageStates.get(card()?.id);
-  }
-  function drawBackground(c, context) {
+  function draw() {
+    const c = card(),
+      s = states.get(c.id);
     context.fillStyle = hex(c.background);
-    context.fillRect(0, 0, W, H);
-    const state = imageStates.get(c.id);
-    if (!state) return false;
-    const profile = c.mode === 'profile',
-      h = profile ? 72 : H,
-      w = profile ? 72 : W,
-      tx = profile ? 20 : 0,
-      ty = profile ? 20 : 0;
-    if (profile) {
-      rounded(context, 0, 0, W, 112, 0, hex(c.accent));
-      rounded(context, 20, 20, 72, 72, 36, hex(c.background));
+    context.fillRect(0, 0, 240, 320);
+    if (s) BadgeArtwork.draw(context, s.image, s, hex(c.background));
+    else if (!c.image) {
+      context.fillStyle = '#2457df';
+      context.beginPath();
+      context.arc(66, 90, 72, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = '#ed765c';
+      context.fillRect(82, 142, 160, 180);
+      context.fillStyle = '#c5d8f8';
+      context.beginPath();
+      context.arc(56, 273, 65, 0, Math.PI * 2);
+      context.fill();
     }
-    context.save();
-    context.beginPath();
-    if (profile) context.arc(56, 56, 36, 0, Math.PI * 2);
-    else context.rect(0, 0, W, H);
-    context.clip();
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = 'high';
-    if (state.normalized) {
-      const sw = profile ? 72 : W,
-        sh = profile ? 72 : H;
-      const r = cropRect(sw, sh, w, h, state.fit, state.zoom, state.x, state.y);
-      context.drawImage(
-        state.image,
-        profile ? 20 : 0,
-        profile ? 20 : 0,
-        sw,
-        sh,
-        tx + r.x,
-        ty + r.y,
-        r.w,
-        r.h,
-      );
-    } else {
-      const r = cropRect(
-        state.image.width,
-        state.image.height,
-        w,
-        h,
-        state.fit,
-        state.zoom,
-        state.x,
-        state.y,
-      );
-      context.drawImage(state.image, tx + r.x, ty + r.y, r.w, r.h);
-    }
-    context.restore();
-    return true;
-  }
-  function rounded(context, x, y, w, h, r, fill) {
-    context.fillStyle = fill;
-    context.beginPath();
-    context.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2));
-    context.fill();
-  }
-  function drawText(text, x, y, width, height, size, fill) {
-    ctx.fillStyle = fill;
-    ctx.font = '500 ' + size + 'px BadgeMontserrat';
-    ctx.textBaseline = 'top';
-    const lineHeight = size === 14 ? 16 : size === 20 ? 22 : 30,
-      maxLines = Math.max(1, Math.floor(height / lineHeight));
-    const lines = [];
-    for (const para of text.split('\n')) {
-      let line = '';
-      for (const word of para.split(' ')) {
-        if (ctx.measureText(line + (line ? ' ' : '') + word).width > width && line) {
-          lines.push(line);
-          line = word;
-        } else line += (line ? ' ' : '') + word;
-      }
-      lines.push(line);
-    }
-    const visible = lines.slice(0, maxLines);
-    for (let i = 0; i < visible.length; i++) {
-      let s = visible[i],
-        clip = ctx.measureText(s).width > width || (i === maxLines - 1 && lines.length > maxLines);
-      if (clip) {
-        while (s.length && ctx.measureText(s + '…').width > width) s = s.slice(0, -1);
-        s += '…';
-      }
-      ctx.fillText(s, x, y + i * lineHeight + 1);
+    if (c.mode !== 'artwork') {
+      // Legacy layouts remain untouched in storage and on device; preview says so explicitly.
+      context.fillStyle = '#000c';
+      context.fillRect(0, 240, 240, 80);
+      context.fillStyle = '#fff';
+      context.font = '14px system-ui';
+      context.fillText('Legacy card', 16, 269);
+      context.fillText('Original layout on your badge', 16, 292);
     }
   }
-  function drawQR(url, x, y, boxHeight = 106) {
-    if (!url || !globalThis.qrcodegen) return;
-    rounded(ctx, x, y, 106, boxHeight, 0, '#fff');
-    try {
-      const Q = qrcodegen.QrCode,
-        S = qrcodegen.QrSegment,
-        segments = [S.makeBytes([...new TextEncoder().encode(url)])];
-      let q = Q.encodeSegments(segments, Q.Ecc.MEDIUM),
-        scale = Math.floor(86 / q.size),
-        version = q.version;
-      while (version < 40 && (4 * (version + 1) + 17) * scale <= 86) version++;
-      q = Q.encodeSegments(segments, Q.Ecc.MEDIUM, version, version, -1, true);
-      scale = Math.floor(86 / q.size);
-      const margin = Math.floor((86 - q.size * scale) / 2);
-      ctx.fillStyle = '#000';
-      for (let j = 0; j < q.size; j++)
-        for (let i = 0; i < q.size; i++)
-          if (q.getModule(i, j))
-            ctx.fillRect(
-              x + 10 + margin + i * scale,
-              y + (boxHeight === 102 ? 8 : 10) + margin + j * scale,
-              scale,
-              scale,
-            );
-    } catch {
-      drawText('Invalid QR link', x + 8, y + 16, 90, 70, 14, '#a52b49');
+  async function imageFor(c) {
+    if (!c.image || states.has(c.id) || !connected) return;
+    const response = await transport.request('/api/image?id=' + c.image);
+    const bytes = await response.arrayBuffer(),
+      off = document.createElement('canvas');
+    off.width = 240;
+    off.height = 320;
+    off.getContext('2d').putImageData(new ImageData(BadgeCodec.decodeBMP(bytes), 240, 320), 0, 0);
+    if (!states.has(c.id))
+      states.set(c.id, {
+        image: off,
+        zoom: 1,
+        x: 0,
+        y: 0,
+        rotation: 0,
+        fit: 'cover',
+        dirty: false,
+      });
+    if (c.id === card().id) {
+      sync();
+      schedule();
     }
   }
-  function renderPreview() {
-    const c = card();
-    if (!c) return;
-    const image = drawBackground(c, ctx);
-    if (c.mode === 'profile') {
-      if (!image) {
-        rounded(ctx, 0, 0, W, 112, 0, hex(c.accent));
-        rounded(ctx, 20, 20, 72, 72, 36, hex(c.background));
-        ctx.font = '500 28px BadgeMontserrat';
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = hex(c.foreground);
-        ctx.fillText(c.name[0] || '?', 56, 56);
-        ctx.textAlign = 'left';
-      }
-      drawText('Say hello.', 110, 44, 118, 32, 20, '#fff');
-      rounded(ctx, 0, 112, W, 208, 0, hex(c.background));
-      drawText(c.name, 20, 128, 200, 38, 28, hex(c.foreground));
-      drawText(c.description, 20, 174, 200, 40, 14, hex(c.foreground));
-      if (c.url) {
-        drawQR(c.url, 20, 218, 102);
-        drawText("Let's\nconnect", 140, 238, 86, 54, 20, hex(c.foreground));
-      } else drawText('Made to be\ncarried with you.', 20, 244, 200, 54, 20, hex(c.foreground));
-    }
-    if (c.mode === 'custom') {
-      for (const s of c.shapes) rounded(ctx, s.x, s.y, s.w, s.h, s.radius, hex(s.color));
-      for (const t of c.texts) drawText(t.text, t.x, t.y, W - t.x, H - t.y, t.size, hex(t.color));
-      if (c.url) drawQR(c.url, 126, 214);
-    }
-  }
-  async function ensureImage(c) {
-    if (!c.image || imageStates.has(c.id)) return;
-    if (imageLoads.has(c.id)) return imageLoads.get(c.id);
-    const imageId = c.image;
-    const promise = (async () => {
-      const bytes = await (await api('/api/image?id=' + encodeURIComponent(imageId))).arrayBuffer();
-      const off = document.createElement('canvas');
-      off.width = W;
-      off.height = H;
-      off.getContext('2d').putImageData(new ImageData(decodeBMP(bytes), W, H), 0, 0);
-      if (deck.cards.some((v) => v.id === c.id && v.image === imageId) && !imageStates.has(c.id))
-        imageStates.set(c.id, {
-          image: off,
-          normalized: true,
-          dirty: false,
-          fit: 'cover',
-          zoom: 1,
-          x: 0,
-          y: 0,
-        });
-      if (card()?.id === c.id) {
-        syncCrop();
-        renderPreview();
-      }
-    })();
-    imageLoads.set(c.id, promise);
-    try {
-      await promise;
-    } finally {
-      imageLoads.delete(c.id);
-    }
-  }
-  function syncCrop() {
-    const s = currentState();
-    $('crop-controls').hidden = !s;
-    if (s) {
-      $('fit').value = s.fit;
-      $('zoom').value = s.zoom * 100;
-      $('crop-x').value = s.x;
-      $('crop-y').value = s.y;
-    }
-  }
-  function renderGallery() {
-    const list = $('card-list');
-    list.replaceChildren();
+  function gallery() {
+    $('card-list').replaceChildren();
     $('card-count').textContent = deck.cards.length + ' / 10';
     deck.cards.forEach((c, i) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'gallery-card' + (i === selected ? ' selected' : '');
+      b.className = 'gallery-card';
       b.setAttribute('aria-pressed', String(i === selected));
-      const swatch = document.createElement('span');
-      swatch.className = 'card-swatch';
-      swatch.style.background = hex(c.background);
-      const desc = document.createElement('span');
-      desc.className = 'card-description';
-      const name = document.createElement('strong');
+      const name = document.createElement('span');
       name.textContent = c.title;
-      const detail = document.createElement('small');
-      detail.textContent =
-        c.mode +
-        ((status.activeCard ? status.activeCard === c.id : status.selected === i)
-          ? ' · On badge'
-          : '');
-      desc.append(name, detail);
-      b.append(swatch, desc);
+      b.append(name);
+      if (c.id === status.activeCard) {
+        const small = document.createElement('small');
+        small.textContent = 'On your badge';
+        b.append(small);
+      }
       b.onclick = () => {
-        if (!busy) {
-          selected = i;
-          renderForm();
-        }
+        if (busy) return;
+        selected = i;
+        edit();
       };
-      list.append(b);
+      $('card-list').append(b);
     });
     $('new-card').disabled = busy || deck.cards.length >= 10;
-    $('delete-card').disabled = busy || deck.cards.length <= 1;
-    $('move-up').disabled = busy || selected === 0;
-    $('move-down').disabled = busy || selected === deck.cards.length - 1;
-    $('default-card').replaceChildren(
-      ...deck.cards.map((c) => {
-        const o = document.createElement('option');
-        o.value = c.id;
-        o.textContent = c.title;
-        return o;
-      }),
-    );
-    if (status.defaultCard) $('default-card').value = status.defaultCard;
   }
-  function field(labelText, value, type, change, options) {
-    const label = document.createElement('label');
-    label.textContent = labelText;
-    const el = document.createElement(
-      type === 'select' ? 'select' : type === 'textarea' ? 'textarea' : 'input',
-    );
-    if (el.tagName === 'INPUT') el.type = type;
-    if (type === 'textarea') {
-      el.rows = 2;
-      el.maxLength = 96;
-    }
-    if (options) {
-      if (type === 'select')
-        for (const n of options) {
-          const o = document.createElement('option');
-          o.value = n;
-          o.textContent = n;
-          el.append(o);
-        }
-      else {
-        el.min = options[0];
-        el.max = options[1];
-        el.step = 1;
-      }
-    }
-    el.value = value;
-    el.addEventListener('input', () => {
-      change(el.type === 'number' ? Math.round(Number(el.value)) : el.value);
-      markDirty();
-    });
-    label.append(el);
-    return label;
-  }
-  function renderElements() {
+  function edit() {
     const c = card();
-    $('texts').replaceChildren();
-    $('shapes').replaceChildren();
-    for (const [kind, array] of [
-      ['texts', c.texts],
-      ['shapes', c.shapes],
-    ])
-      array.forEach((e, i) => {
-        const group = document.createElement('div');
-        group.className = 'element';
-        const head = document.createElement('div');
-        head.className = 'element-head';
-        head.textContent = (kind === 'texts' ? 'Text ' : 'Graphic ') + (i + 1);
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'danger';
-        remove.textContent = 'Remove';
-        remove.onclick = () => {
-          array.splice(i, 1);
-          markDirty();
-          renderElements();
-        };
-        head.append(remove);
-        group.append(head);
-        if (kind === 'texts') group.append(field('Text', e.text, 'textarea', (v) => (e.text = v)));
-        const coords = document.createElement('div');
-        coords.className = 'coords';
-        coords.append(
-          field(
-            'X',
-            e.x,
-            'number',
-            (v) => (e.x = Math.max(0, Math.min(kind === 'texts' ? 220 : W - e.w, v))),
-            [0, kind === 'texts' ? 220 : W - e.w],
-          ),
-          field(
-            'Y',
-            e.y,
-            'number',
-            (v) => (e.y = Math.max(0, Math.min(kind === 'texts' ? 300 : H - e.h, v))),
-            [0, kind === 'texts' ? 300 : H - e.h],
-          ),
-        );
-        if (kind === 'texts')
-          coords.append(field('Size', e.size, 'select', (v) => (e.size = Number(v)), [14, 20, 28]));
-        else
-          coords.append(
-            field('Width', e.w, 'number', (v) => (e.w = Math.max(1, Math.min(W - e.x, v))), [
-              1,
-              W - e.x,
-            ]),
-            field('Height', e.h, 'number', (v) => (e.h = Math.max(1, Math.min(H - e.y, v))), [
-              1,
-              H - e.y,
-            ]),
-            field(
-              'Roundness',
-              e.radius,
-              'number',
-              (v) => (e.radius = Math.max(0, Math.min(120, v))),
-              [0, 120],
-            ),
-          );
-        coords.append(field('Color', hex(e.color), 'color', (v) => (e.color = color(v))));
-        group.append(coords);
-        $(kind).append(group);
-      });
-    $('add-text').disabled = c.texts.length >= 4;
-    $('add-shape').disabled = c.shapes.length >= 4;
-  }
-  function renderForm() {
-    const c = card();
-    if (!c) return;
-    for (const id of ['title', 'mode', 'name', 'description', 'url']) $(id).value = c[id];
-    for (const id of ['background', 'foreground', 'accent']) $(id).value = hex(c[id]);
-    $('profile-fields').hidden = c.mode !== 'profile';
-    $('custom-fields').hidden = c.mode !== 'custom';
-    $('link-field').hidden = c.mode === 'artwork';
-    $('editing-title').textContent = selected + 1 + ' of ' + deck.cards.length;
-    renderGallery();
-    renderElements();
-    syncCrop();
-    renderPreview();
-    ensureImage(c).catch((e) => toast(e.message, true));
+    $('title').value = c.title;
+    $('background').value = hex(c.background);
+    $('editing-title').textContent = c.title;
+    $('legacy-note').hidden = c.mode === 'artwork';
+    sync();
+    gallery();
+    schedule();
+    imageFor(c).catch((e) => toast(e.message));
   }
   function updateStatus(s) {
     status = s;
-    $('connection').textContent = s.stationConnected ? 'On your network' : 'Connected to badge';
-    const onBadgeHotspot = location.hostname === (s.apIp || '192.168.4.1');
-    $('connection-guide').hidden = s.stationConnected && !onBadgeHotspot;
-    $('connection-title').textContent = s.stationConnected
-      ? 'Your badge is on your network'
-      : 'Keep your phone online';
-    $('connection-help').textContent = s.stationConnected
-      ? `Switch your phone back to ${s.stationSsid}, then open the address below. Save any card edits before switching.`
-      : 'Connect the badge to your Wi-Fi or phone hotspot once. Then edit without leaving your internet connection.';
-    $('network-link').hidden = !s.stationConnected;
-    if (s.stationConnected && /^\d{1,3}(\.\d{1,3}){3}$/.test(s.stationIp)) {
-      $('network-link').href = 'http://' + s.stationIp;
-      $('network-link').textContent = 'Open http://' + s.stationIp;
-    } else $('network-link').removeAttribute('href');
-    $('network-status').textContent = s.stationConnected
-      ? `Connected to ${s.stationSsid}. Editor: http://${s.stationIp}. Bookmark it for next time.`
-      : s.stationSsid
-        ? `Waiting for ${s.stationSsid}. If it does not connect, check the password and use 2.4 GHz. For a phone hotspot, leave badge Wi-Fi and turn your hotspot on now.`
-        : 'No network saved yet.';
-    $('storage-label').textContent = s.storageReady
-      ? Math.round(s.storageUsed / 1024) + ' / ' + Math.round(s.storageTotal / 1024) + ' KB used'
-      : 'Initialize storage in the badge menu';
-    $('storage-meter').value = s.storageTotal ? (100 * s.storageUsed) / s.storageTotal : 0;
-    $('system-info').textContent =
-      `Firmware ${s.firmware}\nFree heap: ${Math.round(s.heap / 1024)} KB\nLowest heap: ${Math.round(s.minHeap / 1024)} KB\nLargest block: ${Math.round(s.largestBlock / 1024)} KB\nPSRAM: ${s.psram}\nTouch calibrated: ${s.calibrated ? 'yes' : 'no'}\nTouch presses: ${s.touchPresses || 0}\nScreen: ${s.screen || 'badge'}\nNetwork: ${s.stationConnected ? s.stationIp : 'not connected'}\n${s.setupActive ? 'Badge hotspot: closes after 15 idle minutes' : 'Editor available on saved Wi-Fi'}`;
+    $('storage-label').textContent =
+      `${Math.round(s.storageUsed / 1024)} KB of ${Math.round(s.storageTotal / 1024)} KB used`;
+    $('storage-meter').value = s.storageTotal ? (s.storageUsed / s.storageTotal) * 100 : 0;
+    gallery();
   }
-  async function refreshStatus() {
-    if (busy || $('pair-dialog').open) return;
-    try {
-      updateStatus(await json('/api/status'));
-    } catch (e) {
-      $('connection').textContent = 'Connection lost';
-      if (!$('pair-dialog').open) toast(e.message, true);
+  async function load({ preserve = false } = {}) {
+    const serverDeck = await transport.getCards(),
+      s = await transport.getStatus();
+    if (preserve && changed) {
+      // Keep all edits. Matching IDs overlay the freshly read collection; new drafts append.
+      const edited = deck.cards,
+        active = card().id;
+      serverDeck.cards = serverDeck.cards.map((c) => edited.find((v) => v.id === c.id) || c);
+      for (const c of edited)
+        if (!serverDeck.cards.some((v) => v.id === c.id) && serverDeck.cards.length < 10)
+          serverDeck.cards.push(c);
+      deck = serverDeck;
+      selected = Math.max(
+        0,
+        deck.cards.findIndex((c) => c.id === active),
+      );
+    } else {
+      deck = serverDeck;
+      selected = Math.min(s.selected || 0, deck.cards.length - 1);
+      for (const state of states.values()) state.image?.close?.();
+      states.clear();
+      changed = false;
     }
-  }
-  async function load() {
-    const s = await json('/api/status'),
-      d = await json('/api/cards');
+    if (!deck.cards.length) {
+      deck.cards.push(blank());
+      selected = 0;
+    }
     updateStatus(s);
-    deck = d;
-    selected = Math.min(s.selected, d.cards.length - 1);
-    imageStates.clear();
-    imageLoads.clear();
-    dirty = false;
-    $('save-state').textContent = 'All changes saved';
-    renderForm();
-    $('studio').inert = false;
-    if ($('pair-dialog').open) $('pair-dialog').close();
-    clearInterval(pollTimer);
-    pollTimer = setInterval(refreshStatus, 10000);
-    await document.fonts.ready;
-    renderPreview();
+    edit();
   }
-  async function save() {
-    if (busy) return false;
-    try {
-      for (const c of deck.cards) validateCard(c);
-      setBusy(true);
-      const uploadedStates = [];
-      await json('/api/gc', { method: 'POST', body: {} });
-      for (const c of deck.cards) {
-        const s = imageStates.get(c.id);
-        if (!s?.dirty) continue;
-        const off = document.createElement('canvas');
-        off.width = W;
-        off.height = H;
-        drawBackground(c, off.getContext('2d'));
-        const encoded = encodeBMP(off.getContext('2d').getImageData(0, 0, W, H).data);
-        const result = await json('/api/assets', { method: 'POST', body: encoded, raw: true });
-        c.image = result.id;
-        uploadedStates.push(s);
-      }
-      deck = await json('/api/cards', { method: 'POST', body: deck });
-      for (const s of uploadedStates) s.dirty = false;
-      dirty = false;
-      $('save-state').textContent = 'All changes saved';
-      const s = await json('/api/select', { method: 'POST', body: { id: card().id } });
-      updateStatus(s);
-      renderGallery();
-      toast('Saved. Your card is on the badge.');
-      return true;
-    } catch (e) {
-      toast(e.message, true);
-      return false;
-    } finally {
-      setBusy(false);
-      renderGallery();
+  const labels = {
+    searching: 'Searching…',
+    connecting: 'Connecting…',
+    pairing: 'Pairing…',
+    connected: 'Connected',
+    reconnecting: 'Reconnecting…',
+    disconnected: 'Disconnected',
+    unsupported: 'Unsupported browser',
+  };
+  transport.addEventListener('connectionchange', () => {
+    $('connection').textContent = labels[transport.state] || transport.state;
+    if (transport.state === 'disconnected') {
+      connected = false;
+      $('connect').textContent = 'Reconnect badge';
+      $('device-open').disabled = true;
+      $('show-card').disabled = true;
+      $('welcome').hidden = false;
     }
+  });
+  async function finishPair(password) {
+    await transport.pair(password);
+    key = password;
+    // Set connected only after real pairing and successful reads.
+    connected = true;
+    try {
+      await load({ preserve: changed });
+    } catch (e) {
+      connected = false;
+      throw e;
+    }
+    transport.change('connected');
+    $('connect').textContent = 'Reconnect badge';
+    $('welcome').hidden = true;
+    $('device-open').disabled = false;
+    $('show-card').disabled = false;
+    $('gallery-hint').textContent = 'Your collection stays on the badge.';
+    $('pair-dialog').close();
   }
-  $('pair-form').addEventListener('submit', async (e) => {
+  $('connect').onclick = async () => {
+    try {
+      if (transport.device) await transport.reconnect();
+      else await transport.connect(intendedName);
+      if (key) await finishPair(key);
+      else $('pair-dialog').showModal();
+    } catch (e) {
+      toast(e.message);
+    }
+  };
+  $('pair-form').onsubmit = async (e) => {
     e.preventDefault();
-    const button = e.submitter;
-    button.disabled = true;
     $('pair-error').textContent = '';
     try {
-      const result = await json('/api/pair', {
-        method: 'POST',
-        body: { password: $('pair-password').value },
-      });
-      token = result.token;
-      sessionStorage.setItem('badge-token', token);
+      if (!transport.device?.gatt.connected) await transport.reconnect();
+      await finishPair($('pair-password').value);
       $('pair-password').value = '';
-      if (dirty && deck.cards.length) {
-        updateStatus(await json('/api/status'));
-        $('pair-dialog').close();
-        $('studio').inert = false;
-        clearInterval(pollTimer);
-        pollTimer = setInterval(refreshStatus, 10000);
-        toast('Reconnected. Your unsaved changes are still here.');
-      } else await load();
-    } catch (err) {
-      $('pair-error').textContent = err.message;
-    } finally {
-      button.disabled = false;
-    }
-  });
-  $('pair-dialog').addEventListener('cancel', (e) => e.preventDefault());
-  $('card-form').addEventListener('submit', (e) => e.preventDefault());
-  for (const id of [
-    'title',
-    'mode',
-    'name',
-    'description',
-    'url',
-    'background',
-    'foreground',
-    'accent',
-  ])
-    $(id).addEventListener('input', () => {
-      const c = card();
-      c[id] = ['background', 'foreground', 'accent'].includes(id)
-        ? color($(id).value)
-        : $(id).value;
-      markDirty(id === 'background' || id === 'accent' || id === 'mode');
-      if (id === 'mode') renderForm();
-      if (id === 'title') renderGallery();
-    });
-  for (const id of ['fit', 'zoom', 'crop-x', 'crop-y'])
-    $(id).addEventListener('input', () => {
-      const s = currentState();
-      if (s) {
-        s.fit = $('fit').value;
-        s.zoom = Number($('zoom').value) / 100;
-        s.x = Number($('crop-x').value);
-        s.y = Number($('crop-y').value);
-        markDirty(true);
-      }
-    });
-  $('image-file').addEventListener('change', async () => {
-    const file = $('image-file').files[0],
-      c = card();
-    if (!file || !c) return;
-    try {
-      if (file.size > 24 * 1024 * 1024) throw Error('Choose an image smaller than 24 MB');
-      if (!/^image\/(jpeg|png|webp|bmp)$/.test(file.type))
-        throw Error('Choose a JPEG, PNG, WebP or BMP image');
-      const image = await createImageBitmap(file);
-      if (image.width * image.height > 50000000) {
-        image.close();
-        throw Error('Choose an image under 50 megapixels');
-      }
-      const old = imageStates.get(c.id);
-      if (old?.image?.close) old.image.close();
-      imageStates.set(c.id, {
-        image,
-        normalized: false,
-        dirty: true,
-        fit: 'cover',
-        zoom: 1,
-        x: 0,
-        y: 0,
-      });
-      markDirty();
-      syncCrop();
     } catch (e) {
-      toast(e.message, true);
-    } finally {
-      $('image-file').value = '';
+      $('pair-error').textContent = e.message;
     }
-  });
-  $('remove-image').onclick = () => {
-    const old = currentState();
-    if (old?.image?.close) old.image.close();
-    imageStates.delete(card().id);
-    card().image = '';
-    markDirty();
-    syncCrop();
+  };
+  $('pair-cancel').onclick = () => {
+    $('pair-dialog').close();
+    transport.disconnect();
+  };
+  $('pair-dialog').addEventListener('cancel', () => transport.disconnect());
+  $('theme').value = BadgeTheme.mode;
+  $('theme').onchange = (e) => BadgeTheme.set(e.target.value);
+  if (!BluetoothTransport.supported()) {
+    $('connection').textContent = 'Unsupported browser';
+    $('compatibility').textContent =
+      'This browser cannot connect over Bluetooth. Open this site in Chrome or Edge on a supported desktop or Android device. iOS Safari is unsupported. You can still prepare artwork here.';
+  }
+  $('card-form').onsubmit = (e) => e.preventDefault();
+  $('title').oninput = (e) => {
+    card().title = e.target.value;
+    $('editing-title').textContent = e.target.value;
+    dirty();
+    gallery();
+  };
+  $('background').oninput = (e) => {
+    card().background = parseInt(e.target.value.slice(1), 16);
+    dirty(true);
+  };
+  $('image-file').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      if (file.size > 30 * 1024 * 1024) throw Error('Choose artwork smaller than 30 MB.');
+      // Decode once; every edit redraws from the original, with no cumulative resampling.
+      const image = await createImageBitmap(file);
+      if (image.width * image.height > 50_000_000) {
+        image.close();
+        throw Error('Choose artwork below 50 megapixels.');
+      }
+      states.get(card().id)?.image?.close?.();
+      states.set(card().id, { image, zoom: 1, x: 0, y: 0, rotation: 0, fit: 'cover', dirty: true });
+      card().mode = 'artwork';
+      card().texts = [];
+      card().shapes = [];
+      card().url = '';
+      card().name = '';
+      card().description = '';
+      $('legacy-note').hidden = true;
+      sync();
+      dirty(true);
+    } catch (err) {
+      toast('Could not open artwork. ' + err.message);
+    } finally {
+      e.target.value = '';
+    }
+  };
+  function transform() {
+    const s = states.get(card().id);
+    if (!s) return;
+    s.fit = $('fit').value;
+    s.zoom = Number($('zoom').value) / 100;
+    s.x = Number($('crop-x').value);
+    s.y = Number($('crop-y').value);
+    sync();
+    dirty(true);
+  }
+  for (const id of ['fit', 'zoom', 'crop-x', 'crop-y']) $(id).addEventListener('input', transform);
+  $('zoom-value').oninput = (e) => {
+    const value = Number(e.target.value);
+    if (!Number.isFinite(value) || value < 100 || value > 300) return;
+    $('zoom').value = value;
+    transform();
+  };
+  for (const [id, angle] of [
+    ['rotate-left', -90],
+    ['rotate-right', 90],
+  ])
+    $(id).onclick = () => {
+      const s = states.get(card().id);
+      if (!s) return;
+      s.rotation = (s.rotation + angle + 360) % 360;
+      sync();
+      dirty(true);
+    };
+  $('reset-transform').onclick = () => {
+    const s = states.get(card().id);
+    if (!s) return;
+    Object.assign(s, { rotation: 0, zoom: 1, x: 0, y: 0 });
+    sync();
+    dirty(true);
+  };
+  canvas.onpointerdown = (e) => {
+    const s = states.get(card().id);
+    if (!s || busy || e.button !== 0) return;
+    canvas.setPointerCapture(e.pointerId);
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, originalX: s.x, originalY: s.y };
+    e.preventDefault();
+  };
+  canvas.onpointermove = (e) => {
+    if (!drag || drag.id !== e.pointerId) return;
+    const s = states.get(card().id),
+      rect = canvas.getBoundingClientRect();
+    const g = BadgeArtwork.geometry(s.image.width, s.image.height, s);
+    BadgeArtwork.move(
+      s,
+      g,
+      ((e.clientX - drag.x) * 240) / rect.width,
+      ((e.clientY - drag.y) * 320) / rect.height,
+    );
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    sync();
+    dirty(true);
+    e.preventDefault();
+  };
+  function stopDrag(e) {
+    if (!drag || drag.id !== e.pointerId) return;
+    if (e.type === 'pointercancel') {
+      const s = states.get(card().id);
+      s.x = drag.originalX;
+      s.y = drag.originalY;
+      sync();
+      schedule();
+    }
+    drag = null;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+  }
+  canvas.onpointerup = stopDrag;
+  canvas.onpointercancel = stopDrag;
+  canvas.onlostpointercapture = () => {
+    drag = null;
+  };
+  canvas.onkeydown = (e) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+    const s = states.get(card().id);
+    if (!s) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    if (e.key === 'ArrowLeft') s.x -= step;
+    if (e.key === 'ArrowRight') s.x += step;
+    if (e.key === 'ArrowUp') s.y -= step;
+    if (e.key === 'ArrowDown') s.y += step;
+    s.x = BadgeArtwork.clamp(s.x, -100, 100);
+    s.y = BadgeArtwork.clamp(s.y, -100, 100);
+    sync();
+    dirty(true);
   };
   $('new-card').onclick = () => {
     if (deck.cards.length >= 10) return;
-    const bytes = new Uint8Array(4);
-    crypto.getRandomValues(bytes);
-    const id = [...bytes].map((n) => n.toString(16).padStart(2, '0')).join('');
-    deck.cards.push({
-      id,
-      title: 'New card',
-      mode: 'profile',
-      image: '',
-      name: 'Your name',
-      description: 'A little about you.',
-      url: '',
-      background: 0xd9ceff,
-      foreground: 0x23324d,
-      accent: 0x3659d9,
-      texts: [],
-      shapes: [],
-    });
+    deck.cards.push(blank());
     selected = deck.cards.length - 1;
-    markDirty();
-    renderForm();
-  };
-  $('delete-card').onclick = () => {
-    if (deck.cards.length <= 1) return;
-    if (!confirm('Delete “' + card().title + '”? Save to badge to apply.')) return;
-    imageStates.delete(card().id);
-    deck.cards.splice(selected, 1);
-    selected = Math.max(0, selected - 1);
-    markDirty();
-    renderForm();
+    dirty();
+    edit();
   };
   for (const [id, delta] of [
     ['move-up', -1],
@@ -755,194 +441,241 @@
       if (to < 0 || to >= deck.cards.length) return;
       [deck.cards[selected], deck.cards[to]] = [deck.cards[to], deck.cards[selected]];
       selected = to;
-      markDirty();
-      renderForm();
+      dirty();
+      edit();
     };
-  $('add-text').onclick = () => {
-    if (card().texts.length < 4) {
-      card().texts.push({ text: 'Your words', x: 20, y: 40, size: 20, color: card().foreground });
-      markDirty();
-      renderElements();
-    }
-  };
-  $('add-shape').onclick = () => {
-    if (card().shapes.length < 4) {
-      card().shapes.push({ x: 20, y: 20, w: 80, h: 60, radius: 12, color: card().accent });
-      markDirty();
-      renderElements();
-    }
-  };
-  $('save-card').onclick = save;
-  $('show-card').onclick = async () => {
-    if (dirty) {
-      await save();
-      return;
-    }
+  $('delete-card').onclick = async () => {
+    const id = card().id;
+    if (!confirm(`Delete “${card().title}”? Its unsaved edits will be removed.`)) return;
     try {
-      updateStatus(await json('/api/select', { method: 'POST', body: { id: card().id } }));
-      renderGallery();
-      toast('Showing “' + card().title + '”');
+      lock(true);
+      if (connected) {
+        const saved = await transport.getCards();
+        if (saved.cards.some((c) => c.id === id)) {
+          saved.cards = saved.cards.filter((c) => c.id !== id);
+          const result = await transport.updateCards(saved);
+          deck.revision = result.revision;
+        }
+      }
+      states.get(id)?.image?.close?.();
+      states.delete(id);
+      deck.cards.splice(selected, 1);
+      if (!deck.cards.length) {
+        deck.cards.push(blank());
+        changed = false;
+      }
+      selected = Math.min(selected, deck.cards.length - 1);
+      if (connected) updateStatus(await transport.getStatus());
+      edit();
+      toast('Card deleted.');
     } catch (e) {
-      toast(e.message, true);
+      toast(e.message);
+    } finally {
+      lock(false);
     }
   };
   $('reload').onclick = async () => {
-    if (dirty && !confirm('Discard unsaved changes and reload from your badge?')) return;
-    try {
-      await load();
-      toast('Reloaded from badge');
-    } catch (e) {
-      toast(e.message, true);
-    }
-  };
-  $('device-open').onclick = () => {
-    if (!token) {
-      showPair();
+    if (!connected) {
+      toast('Connect your badge to reload its collection.');
       return;
     }
-    for (const id of ['brightness', 'interval', 'rotation']) $(id).value = status[id];
-    $('brightness-output').value = status.brightness + '%';
-    $('autoplay').checked = status.autoplay;
-    $('wifi-ssid').value = status.stationSsid || '';
-    $('default-card').value = status.defaultCard;
-    $('device-dialog').showModal();
-  };
-  $('calibrate-touch').onclick = async () => {
+    if (changed && !confirm('Reloading discards unsaved edits in this tab. Continue?')) return;
     try {
-      await json('/api/calibrate', { method: 'POST', body: {} });
-      $('device-dialog').close();
-      toast('Touch each crosshair on your badge, lifting between targets.');
+      await load();
+      toast('Collection loaded.');
     } catch (e) {
-      toast(e.message, true);
+      toast(e.message);
+    }
+  };
+  $('save-card').onclick = async () => {
+    if (!connected) {
+      toast('Connect your badge first. Your edits will stay here.');
+      return;
+    }
+    try {
+      const c = card(),
+        s = states.get(c.id);
+      BadgeCodec.validateCard(c);
+      if (c.mode !== 'artwork')
+        throw Error(
+          'Choose artwork for this card before uploading. Your original card stays on the badge.',
+        );
+      if (!s && !c.image) throw Error('Choose artwork for your card.');
+      lock(true);
+      progress('Preparing card');
+      let imageId = c.image;
+      if (s && (s.dirty || !imageId)) {
+        if (s.uploadedId) imageId = s.uploadedId;
+        else {
+          const output = document.createElement('canvas');
+          output.width = 240;
+          output.height = 320;
+          const out = output.getContext('2d');
+          BadgeArtwork.draw(out, s.image, s, hex(c.background));
+          const bytes = BadgeCodec.encodeBMP(out.getImageData(0, 0, 240, 320).data);
+          progress('Uploading card…', 0);
+          const result = await transport.uploadCard(bytes, (p) =>
+            progress(`Uploading card… ${p}%`, p),
+          );
+          imageId = result.id;
+          s.uploadedId = imageId;
+        }
+      }
+      progress('Saving card');
+      const candidate = structuredClone(deck);
+      candidate.cards[selected].image = imageId;
+      // Keep pending image/transform until the atomic manifest transaction succeeds.
+      const saved = await transport.updateCards(candidate);
+      deck = saved;
+      if (s) {
+        s.dirty = false;
+        s.uploadedId = null;
+      }
+      changed = false;
+      updateStatus(await transport.selectCard(c.id));
+      $('save-state').textContent = 'Card uploaded';
+      $('save-state').classList.remove('unsaved');
+      progress('Card uploaded', 100);
+      toast('Card uploaded.');
+      gallery();
+    } catch (e) {
+      toast(e.message);
+      progress('Upload stopped. Your edits are kept.');
+    } finally {
+      lock(false);
+    }
+  };
+  $('show-card').onclick = async () => {
+    if (changed) {
+      toast('Upload your changes before showing this card.');
+      return;
+    }
+    try {
+      updateStatus(await transport.selectCard(card().id));
+      toast('Showing this card.');
+    } catch (e) {
+      toast(e.message);
+    }
+  };
+  $('device-open').onclick = async () => {
+    try {
+      updateStatus(await transport.getStatus());
+      $('brightness').value = status.brightness;
+      $('brightness-output').value = status.brightness + '%';
+      $('screen-timeout').value = status.screenTimeout ?? 120;
+      $('autoplay').checked = status.autoplay;
+      $('interval').value = status.interval;
+      $('system-info').textContent = JSON.stringify(status, null, 2);
+      $('device-dialog').showModal();
+    } catch (e) {
+      toast(e.message);
     }
   };
   $('device-close').onclick = () => $('device-dialog').close();
-  $('connect-network').onclick = () => {
-    $('device-open').click();
-    $('network-details').open = true;
-    $('wifi-ssid').focus();
-  };
-  $('show-badge').onclick = async () => {
-    if (!token) return showPair();
-    try {
-      await json('/api/display', { method: 'POST', body: {} });
-      toast('Your badge is showing. You can keep editing here.');
-    } catch (e) {
-      toast(e.message, true);
-    }
-  };
-  $('brightness').oninput = () => ($('brightness-output').value = $('brightness').value + '%');
+  $('brightness').oninput = (e) => ($('brightness-output').value = e.target.value + '%');
   $('settings-form').onsubmit = async (e) => {
     e.preventDefault();
     try {
       updateStatus(
-        await json('/api/settings', {
-          method: 'POST',
-          body: {
-            brightness: Number($('brightness').value),
-            interval: Number($('interval').value),
-            rotation: Number($('rotation').value),
-            autoplay: $('autoplay').checked,
-            defaultCard: $('default-card').value,
-          },
+        await transport.updateSettings({
+          brightness: Number($('brightness').value),
+          screenTimeout: Number($('screen-timeout').value),
+          autoplay: $('autoplay').checked,
+          interval: Number($('interval').value),
+          rotation: status.rotation,
+          defaultCard: status.defaultCard,
         }),
       );
-      toast('Device settings saved');
-    } catch (err) {
-      toast(err.message, true);
+      toast('Device settings saved.');
+    } catch (e) {
+      toast(e.message);
     }
   };
-  $('network-form').onsubmit = async (e) => {
-    e.preventDefault();
+  $('calibrate-touch').onclick = async () => {
     try {
-      updateStatus(
-        await json('/api/network', {
-          method: 'POST',
-          body: { ssid: $('wifi-ssid').value, password: $('wifi-password').value },
-        }),
-      );
-      $('wifi-password').value = '';
-      toast('Network saved. For a phone hotspot, leave badge Wi-Fi and turn your hotspot on now.');
-    } catch (err) {
-      toast(err.message, true);
+      await transport.json('/api/calibrate', {});
+      toast('Touch each crosshair on your badge.');
+    } catch (e) {
+      toast(e.message);
     }
   };
   $('collect-garbage').onclick = async () => {
     try {
-      const result = await json('/api/gc', { method: 'POST', body: {} });
-      toast('Removed ' + result.removed + ' unused backgrounds');
-      await refreshStatus();
+      await transport.json('/api/gc', {});
+      updateStatus(await transport.getStatus());
+      toast('Unused artwork cleaned.');
     } catch (e) {
-      toast(e.message, true);
+      toast(e.message);
     }
   };
-  $('end-session').onclick = async () => {
-    if (dirty && !confirm('Sign out and leave unsaved changes in this browser?')) return;
+  $('disconnect').onclick = () => {
+    transport.disconnect();
+    $('device-dialog').close();
+  };
+  // Load the pinned USB installer only when requested. No pairing fragment reaches a CDN.
+  let installerLoaded = false;
+  async function installer() {
+    $('installer').replaceChildren();
+    if (!navigator.serial) {
+      $('install-status').textContent =
+        'This browser has no Web Serial. Use desktop Chrome or Edge with a USB data cable.';
+      return;
+    }
     try {
-      await json('/api/close', { method: 'POST', body: {} });
-      $('device-dialog').close();
-      token = '';
-      sessionStorage.removeItem('badge-token');
-      clearInterval(pollTimer);
-      $('connection').textContent = 'Signed out';
-      $('studio').inert = true;
-      toast('Signed out. Saved Wi-Fi stays connected. Use Device settings to sign in again.');
+      const mode = $('install-mode').value;
+      $('install-warning').textContent =
+        mode === 'fresh'
+          ? 'For blank boards only. Installation writes a bootloader and partition table. Back up any existing firmware/data first. Erase device is optional in the installer and destroys all cards/settings.'
+          : 'Updates write only the application. Existing 2.x layout required: app at 0x10000, storage at 0x210000. Leave “Erase device” unchecked to preserve cards/settings.';
+      const manifest = `./firmware/${mode}.json`;
+      const response = await fetch(manifest, { cache: 'no-store' });
+      if (!response.ok) throw Error('Firmware has not been published here yet.');
+      await response.json();
+      if (!installerLoaded) {
+        await import('./vendor/esp-web-tools/install-button.js');
+        installerLoaded = true;
+      }
+      const button = document.createElement('esp-web-install-button');
+      button.setAttribute('manifest', manifest);
+      const action = document.createElement('button');
+      action.slot = 'activate';
+      action.className = 'primary full';
+      action.textContent = mode === 'fresh' ? 'Connect USB & install' : 'Connect USB & update';
+      button.append(action);
+      $('installer').append(button);
+      $('install-status').textContent =
+        'Close other serial tools. Select the CH340/CH341 USB port when prompted.';
     } catch (e) {
-      toast(e.message, true);
+      $('install-status').textContent = e.message;
     }
-  };
-  function point(e) {
-    const r = canvas.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
   }
-  canvas.addEventListener('pointerdown', (e) => {
-    if (busy || card()?.mode !== 'custom') return;
-    const p = point(e),
-      c = card();
-    let item;
-    for (const t of [...c.texts].reverse())
-      if (p.x >= t.x && p.y >= t.y && p.y < t.y + t.size + 8) {
-        item = t;
-        break;
-      }
-    if (!item)
-      for (const s of [...c.shapes].reverse())
-        if (p.x >= s.x && p.y >= s.y && p.x < s.x + s.w && p.y < s.y + s.h) {
-          item = s;
-          break;
-        }
-    if (item) {
-      drag = { item, dx: p.x - item.x, dy: p.y - item.y };
-      canvas.setPointerCapture(e.pointerId);
-    }
-  });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    const p = point(e),
-      t = drag.item;
-    const maxX = 'w' in t ? W - t.w : 220,
-      maxY = 'h' in t ? H - t.h : 300;
-    t.x = Math.round(Math.max(0, Math.min(maxX, p.x - drag.dx)));
-    t.y = Math.round(Math.max(0, Math.min(maxY, p.y - drag.dy)));
-    markDirty();
-  });
-  for (const ev of ['pointerup', 'pointercancel'])
-    canvas.addEventListener(ev, () => {
-      if (drag) {
-        drag = null;
-        renderElements();
-      }
-    });
+  $('install-open').onclick = () => {
+    $('install-dialog').showModal();
+    installer();
+  };
+  $('install-close').onclick = () => $('install-dialog').close();
+  $('install-mode').onchange = installer;
   window.addEventListener('beforeunload', (e) => {
-    if (dirty) {
+    if (changed) {
       e.preventDefault();
       e.returnValue = '';
     }
   });
-  if (token)
-    load().catch((e) => {
-      showPair();
-      $('pair-error').textContent = e.message;
-    });
-  else showPair();
+  // Testable public rendering uses exactly the export pipeline, without fake device state.
+  globalThis.BadgeEditor = {
+    get deck() {
+      return deck;
+    },
+    get state() {
+      return states.get(card().id);
+    },
+    get changed() {
+      return changed;
+    },
+    draw,
+    sync,
+    transport,
+  };
+  edit();
+  lock(false);
 })();
