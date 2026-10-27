@@ -68,7 +68,9 @@
         this.device = await navigator.bluetooth.requestDevice({
           filters: [name ? { name, services: [SERVICE] } : { services: [SERVICE] }],
         });
-        this.device.addEventListener('gattserverdisconnected', () => this.lost());
+        this.device.addEventListener('gattserverdisconnected', (event) => {
+          if (event.target === this.device) this.lost();
+        });
         await this.open();
       } catch (e) {
         this.disconnect();
@@ -211,6 +213,7 @@
           } catch {}
           const error = Error(message);
           error.deviceResponse = true;
+          error.status = this.code;
           p.reject(error);
         } else if (p.op === 3)
           p.resolve(
@@ -263,7 +266,7 @@
         }
         return r;
       } catch (e) {
-        if (!e.deviceResponse) this.disconnect();
+        if (!e.deviceResponse || (e.status === 401 && path !== '/api/pair')) this.disconnect();
         throw e;
       }
     }

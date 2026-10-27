@@ -38,6 +38,11 @@
   intendedName = fragment.get('badge') || '';
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   const card = () => deck.cards[selected];
+  function connectionMessage(error) {
+    return error.name === 'NetworkError'
+      ? 'Could not connect. Check Bluetooth and keep the badge nearby. If you revoked access, forget its old pairing in Bluetooth settings, then connect again.'
+      : error.message;
+  }
   function toast(message) {
     clearTimeout(toastTimer);
     $('toast').textContent = message;
@@ -281,7 +286,11 @@
       if (key) await finishPair(key);
       else $('pair-dialog').showModal();
     } catch (e) {
-      toast(e.message);
+      if (e.deviceResponse && transport.state === 'pairing') {
+        key = '';
+        $('pair-error').textContent = connectionMessage(e);
+        if (!$('pair-dialog').open) $('pair-dialog').showModal();
+      } else toast(connectionMessage(e));
     }
   };
   $('pair-form').onsubmit = async (e) => {
@@ -292,14 +301,18 @@
       await finishPair($('pair-password').value);
       $('pair-password').value = '';
     } catch (e) {
-      $('pair-error').textContent = e.message;
+      $('pair-error').textContent = connectionMessage(e);
     }
   };
   $('pair-cancel').onclick = () => {
     $('pair-dialog').close();
     transport.disconnect();
+    transport.device = null;
   };
-  $('pair-dialog').addEventListener('cancel', () => transport.disconnect());
+  $('pair-dialog').addEventListener('cancel', () => {
+    transport.disconnect();
+    transport.device = null;
+  });
   $('theme').value = BadgeTheme.mode;
   $('theme').onchange = (e) => BadgeTheme.set(e.target.value);
   if (!BluetoothTransport.supported()) {

@@ -31,6 +31,7 @@ function installMock() {
     },
     uploads: [],
     failCommit: false,
+    password: 'abcdefghijklmnop',
     mtu: 23,
     header: [],
     data: [],
@@ -81,8 +82,8 @@ function installMock() {
       : {};
     if (request.path === '/api/pair')
       return answer(
-        body.password === 'abcdefghijklmnop' ? 200 : 401,
-        body.password === 'abcdefghijklmnop'
+        body.password === mock.password ? 200 : 401,
+        body.password === mock.password
           ? { token: 'a'.repeat(64) }
           : { error: 'Wrong pairing key' },
       );
@@ -128,6 +129,10 @@ function installMock() {
         } else if (op === 1) {
           request = JSON.parse(new TextDecoder().decode(new Uint8Array(mock.header)));
           mock.data = [];
+          if (mock.expireNext && request.path !== '/api/pair') {
+            mock.expireNext = false;
+            return answer(401, { error: 'Session expired. Reconnect your badge.' });
+          }
           emit(0, 0);
         } else if (op === 2) {
           if (at !== mock.data.length) throw Error('Offset mismatch');

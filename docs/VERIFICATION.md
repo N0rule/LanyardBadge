@@ -223,3 +223,31 @@ Revision advanced from 16 to 18 through the test and restoration. These measured
 times are not throughput guarantees for other phones/hosts. The earlier test key
 was rejected after the device's key changed; the harness refreshed its private
 key file from the current device without printing or modifying the credential.
+
+## Released browser build and public binaries
+
+The final public Pages application (without intercepted assets or simulated GATT)
+completed a real Chromium card upload/commit/select in **24.248 seconds** with the
+faster firmware, then restored the original two cards and selection. Revision
+advanced from 18 to 20. Log: `test-results/browser-upload-real-final.log`.
+
+GitHub Actions build and deployment passed for release commit `4c6f0c8`. All eight
+browser tests, portable/flash-boundary tests, firmware build and package validation
+passed in CI. The public 1662080-byte application has SHA-256
+`96436f642912eb1ea144d83d8caed7e20d1946d7c775a31c26cc33c0e2b046c7`.
+It differs from the local build only in embedded runner/home source paths, build
+time and dependent ELF/image hashes; build environments are not byte-identical.
+Published SHA256SUMS validates the downloaded image. That exact published image
+is also flashed separately for the final hardware check, using an application-only
+write at 0x10000 rather than touching any persistent partition.
+
+## Manual pairing and expired-session recovery
+
+The QR screen also shows a readable pairing key for desktop users. A rejected
+stored QR key opens manual pairing without discarding editor state; cancelling
+pairing permits choosing another device. Non-pairing API 401 errors now disconnect
+clearly and preserve artwork for a fresh authenticated reconnect. Ten Chromium
+GATT-simulation tests pass, including stale-key and expired-session recovery.
+The firmware generates RAM-only recovery credentials if NVS cannot be opened and
+refuses to advertise with a missing pairing key; that NVS fault case is code-reviewed
+and compiled, not fault-injected on this populated device.

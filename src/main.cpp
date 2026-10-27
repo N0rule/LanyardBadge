@@ -199,7 +199,6 @@ void setup() {
     ui.info = [] { return network.summary(); };
 
     ui.pairingUrl = [] { return bluetooth.pairingUrl(); };
-    ui.bluetoothName = [] { return bluetooth.name(); };
     if (!bluetooth.begin())
         Serial.println("ERROR: Bluetooth initialization failed");
     if (!ui.begin()) {

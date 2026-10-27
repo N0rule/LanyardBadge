@@ -224,3 +224,42 @@ test('response timeout measures inactivity instead of total download duration', 
   expect(await page.evaluate(() => slowError)).toBe('');
   expect(await page.evaluate(() => slowDone)).toBe(true);
 });
+
+test('revoked QR key offers manual re-pair without losing unsaved artwork', async ({ page }) => {
+  const errors = await setup(page);
+  await connect(page);
+  await image(page);
+  await page.locator('#title').fill('Keep my artwork');
+  await page.evaluate(() => {
+    bleMock.password = 'qrstuvwxyz234567';
+    badgeDevice.disconnect();
+  });
+  await page.locator('#connect').click();
+  await expect(page.locator('#pair-dialog')).toBeVisible();
+  await expect(page.locator('#pair-error')).toHaveText('Wrong pairing key');
+  await page.locator('#pair-password').fill('qrstuvwxyz234567');
+  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#title')).toHaveValue('Keep my artwork');
+  expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('expired API session disconnects clearly and keeps artwork for reconnect', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await connect(page);
+  await image(page);
+  await page.evaluate(() => {
+    bleMock.expireNext = true;
+  });
+  await page.locator('#save-card').click();
+  await expect(page.locator('#connection')).toHaveText('Disconnected');
+  await expect(page.locator('#toast')).toContainText('Session expired');
+  expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
+  await page.locator('#connect').click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
+  expect(errors).toEqual([]);
+});

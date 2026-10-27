@@ -11,6 +11,8 @@ void put32(uint8_t *p, uint32_t v) {
 }
 } // namespace
 bool Bluetooth::begin() {
+    if (strlen(settings_.value.pairingKey) != 16)
+        return false;
     queue_ = xQueueCreate(4, sizeof(Packet));
     if (!queue_)
         return false;

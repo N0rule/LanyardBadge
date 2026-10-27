@@ -77,7 +77,6 @@ class Ui {
     std::function<void(Command, int)> command;
     std::function<String()> info;
     std::function<String()> pairingUrl;
-    std::function<String()> bluetoothName;
     Ui(Display &d, Touch &t, Assets &a, SettingsStore &s)
         : display_(d), touch_(t), assets_(a), settings_(s) {}
     bool begin();

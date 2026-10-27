@@ -24,8 +24,13 @@ bool validBase(const SettingsV2 &s) {
 }
 } // namespace
 bool SettingsStore::begin() {
-    if (!prefs_.begin("badge-v2", false))
+    if (!prefs_.begin("badge-v2", false)) {
+        // Keep recovery pairing device-specific even when NVS cannot be opened.
+        // These RAM-only credentials intentionally change after a restart.
+        randomKey(value.apPassword);
+        randomKey(value.pairingKey);
         return false;
+    }
     // Independent schema-3 key preserves the original blob for recovery.
     if (prefs_.getBytesLength("settings3") == sizeof(Settings)) {
         Settings saved;

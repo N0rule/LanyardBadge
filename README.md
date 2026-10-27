@@ -14,6 +14,7 @@ XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
    open the editor manually. The badge advertises its device-specific BLE service.
 2. Choose **Connect your badge** in a supported secure Web Bluetooth browser.
    A scanned QR supplies the ownership key; it is immediately removed from the URL.
+   On a desktop, you can also type the key shown below the badge’s QR.
 3. Choose artwork, rotate, fit/crop, zoom and drag it into position. The preview
    and final upload share the same transformation. Upload the card, then wear it.
 4. Swipe the physical artwork screen to change cards; hold it to open the menu.

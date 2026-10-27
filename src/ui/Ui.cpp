@@ -507,8 +507,9 @@ void Ui::render() {
         lv_qrcode_set_dark_color(qr, lv_color_black());
         lv_qrcode_set_light_color(qr, lv_color_white());
         lv_qrcode_update(qr, url.c_str(), url.length());
-        String name = bluetoothName ? bluetoothName() : String("LanyardBadge");
-        label(root, name.c_str(), 16, 298, 208, 22, font(14), ink);
+        String manualKey = String("Key: ") + settings_.value.pairingKey;
+        auto *key = label(root, manualKey.c_str(), 8, 298, 224, 22, font(14), ink);
+        lv_obj_set_style_text_align(key, LV_TEXT_ALIGN_CENTER, 0);
         return;
     }
     header(page_ == Page::Menu        ? "Your badge"
