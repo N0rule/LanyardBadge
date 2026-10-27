@@ -32,7 +32,9 @@ update, another full 4 MB snapshot was read successfully after USB was reseated:
   restarts missing advertising while disconnected.
 - The overflowing onboarding hint is explicitly split into two centered lines;
   a larger four-letter code replaces the long footer key. New physical fit/scan
-  confirmation is still required; serial output does not verify clipping.
+  confirmation was requested. **The owner confirmed both the hint and code fit
+  correctly.** QR scanning remains unconfirmed. The owner then requested the
+  single-line centered heading “Lanyard Badge”, replacing “Welcome to LanyardBadge”.
 
 Refreshing a page still closes its old GATT connection. The new page restores a
 previously permitted device using `getDevices()` and authenticates with the saved

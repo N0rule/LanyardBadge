@@ -491,8 +491,9 @@ void Ui::render() {
         return;
     }
     if (page_ == Page::Pairing) {
-        label(root, settings_.value.provisioned ? "Connect to editor" : "Welcome to\nLanyardBadge",
-              16, 12, 208, 52, font(20), ink);
+        auto *title = label(root, settings_.value.provisioned ? "Connect to editor" : "Lanyard Badge",
+                            16, 22, 208, 28, font(20), ink);
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
         auto *hint = label(root, "Scan to connect\nand customize.", 12, 62, 216, 34, font(14), ink);
         lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
