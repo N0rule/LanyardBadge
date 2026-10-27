@@ -6,7 +6,14 @@ Transmit/read/notify `f40d1002-6f15-4d56-b6d4-17c92e648a10`.
 Encrypted writes/reads; complete an encrypted read before subscribing, then
 subscribe before sending requests. This avoids racing security setup during a
 fast reconnect. A read returns three
-bytes: protocol version 1, then little-endian negotiated MTU (uint16).
+bytes: protocol version 2, then little-endian negotiated MTU (uint16). The current
+browser also accepts legacy version 1.
+
+After subscribing, a protocol-2 client sends operation 6 with a fresh sequence,
+offset 0 and no payload, then waits for operation-0 acknowledgement at offset 0.
+This abandons a previous editor's response/temporary upload and API token even
+when the OS retains the physical BLE connection across page reloads. It never
+deletes committed artwork, changes pairing credentials or resets retry limits.
 
 Every framed packet starts with operation (u8), request sequence (u16 LE), offset
 or length (u32 LE). Remaining bytes are payload. Total packet length ≤ min(512,
@@ -47,7 +54,7 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 | POST `/api/assets` | Exactly 153666 RGB565 BMP bytes → `{id}` |
 | GET `/api/image?id=xxxxxxxx` | Validated image ID → BMP bytes |
 | POST `/api/select` | `{id}` → device status |
-| POST `/api/settings` | brightness, interval, autoplay, rotation, defaultCard, optional screenTimeout |
+| POST `/api/settings` | brightness, interval, autoplay, rotation, defaultCard, optional screenTimeout and darkMode (boolean) |
 | POST `/api/calibrate` | `{}` → starts optional physical calibration |
 | POST `/api/gc` | `{}` → number of unreferenced images removed |
 | POST `/api/display` | `{}` → returns to artwork |

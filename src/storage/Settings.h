@@ -16,10 +16,13 @@ struct SettingsV2 {
     Calibration calibration{};
     uint32_t crc = 0;
 };
-struct Settings : SettingsV2 {
+struct SettingsV3 : SettingsV2 {
     uint32_t screenTimeout = 120;
     bool provisioned = false;
     char pairingKey[17]{};
+};
+struct Settings : SettingsV3 {
+    uint32_t darkMode = 1;
 };
 class SettingsStore {
     Preferences prefs_;

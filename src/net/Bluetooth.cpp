@@ -51,10 +51,8 @@ String Bluetooth::pairingUrl() const {
     return String("https://n0rule.github.io/LanyardBadge/#badge=") + name_ +
            "&code=" + settings_.pairingCode();
 }
-void Bluetooth::revoke(bool forgetBonds) {
+void Bluetooth::revoke() {
     api_.revokeSession();
-    if (forgetBonds)
-        NimBLEDevice::deleteAllBonds();
     if (connected_ && server_)
         server_->disconnect(handle_);
     reset();
@@ -65,10 +63,11 @@ void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
     initialInterval_ = info.getConnInterval();
     connected_ = true;
     ++generation_;
-    // Establish security before encrypted GATT reads; retain peer keys for reconnects.
-    NimBLEDevice::startSecurity(info.getConnHandle());
+    // Let the central establish security when it accesses encrypted GATT.
+    // Starting SMP here races BlueZ's connection/service discovery on reconnect.
 }
-void Bluetooth::onDisconnect(NimBLEServer *, NimBLEConnInfo &, int) {
+void Bluetooth::onDisconnect(NimBLEServer *, NimBLEConnInfo &, int reason) {
+    disconnectReason_ = reason;
     connected_ = false;
     ++generation_;
 }
@@ -88,7 +87,7 @@ void Bluetooth::onMTUChange(uint16_t mtu, NimBLEConnInfo &) {
     mtu_ = mtu;
 }
 void Bluetooth::onRead(NimBLECharacteristic *c, NimBLEConnInfo &info) {
-    uint8_t hello[3] = {1, uint8_t(info.getMTU()), uint8_t(info.getMTU() >> 8)};
+    uint8_t hello[3] = {2, uint8_t(info.getMTU()), uint8_t(info.getMTU() >> 8)};
     c->setValue(hello, sizeof(hello));
 }
 void Bluetooth::onWrite(NimBLECharacteristic *c, NimBLEConnInfo &) {
@@ -153,8 +152,20 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
     uint32_t offset = get32(p + 3);
     uint8_t op = p[0];
     lastActivity_ = millis();
-    if (op == 5 && responding_ && seq == sequence_ && offset == sent_) {
-        waitingAck_ = false;
+    if (op == 6 && n == 7 && offset == 0) {
+        // A new browser page can inherit the same physical BLE connection.
+        // Abandon old transfers before authenticating a new editor session.
+        reset();
+        api_.revokeSession();
+        sequence_ = seq;
+        if (!notify(0, 0))
+            overflow_ = true;
+        return;
+    }
+    if (op == 5) {
+        if (responding_ && seq == sequence_ && offset == sent_)
+            waitingAck_ = false;
+        // Late acknowledgements from an abandoned page are harmless.
         return;
     }
     // Request headers are fragmented as well: works at ATT MTU 23 (13 payload bytes).

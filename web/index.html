@@ -18,8 +18,8 @@
       <a class="brand" href="./"><span class="brand-mark" aria-hidden="true"></span>LanyardBadge</a>
       <div class="top-actions">
         <span id="connection" role="status">Disconnected</span>
-        <button id="connect" class="primary">Connect your badge</button
-        ><button id="device-open" disabled>Device settings</button>
+        <button id="device-open" hidden disabled>Device settings</button>
+        <button id="disconnect-top" hidden>Disconnect</button>
         <label class="theme-label"
           >Theme<select id="theme" aria-label="Theme">
             <option value="system">System</option>
@@ -30,36 +30,31 @@
       </div>
     </header>
     <section id="welcome" class="welcome">
-      <div>
-        <h1>Art goes<br />where you go.</h1>
-        <p>A tiny canvas for your everyday. Choose artwork, make it yours, and wear it.</p>
+      <div class="landing-content">
+        <h1>Your art,<br />on your badge.</h1>
+        <p>Choose something you love. Make it yours. Take it with you.</p>
+        <div class="landing-actions">
+          <button id="connect" class="primary">Connect your badge</button>
+          <button id="install-open">Install firmware</button>
+        </div>
         <p class="hint">
-          Already running LanyardBadge? Connect above. New CYD2USB?
-          <button id="install-open" class="text-button">Install LanyardBadge</button> through USB
-          first.
+          Already installed? Connect over Bluetooth.<br />New badge? Install through USB first.
         </p>
-      </div>
-      <div class="welcome-guide">
-        <strong>Scan. Connect. Create. Upload. Wear.</strong>
-        <p id="compatibility">
-          Bluetooth works in supported Chromium browsers on desktop and Android. iOS Safari is
-          unsupported. No account or Wi-Fi setup needed.
+        <p id="compatibility" class="hint">
+          Use a supported Chrome or Edge browser on desktop or Android.
+        </p>
+        <p id="draft-kept" class="hint" hidden>
+          Your unsaved artwork is kept. Reconnect to continue editing.
         </p>
       </div>
     </section>
-    <div id="remembered-badge" class="remembered-badge" hidden>
-      <span id="remembered-label"></span>
-      <button id="forget-badge" class="text-button" type="button">Forget badge</button>
-    </div>
-    <main class="studio" id="studio">
+    <main class="studio" id="studio" hidden>
       <aside class="gallery">
         <div class="section-head">
           <h2>Your cards</h2>
           <span id="card-count">0 / 10</span>
         </div>
-        <p class="hint" id="gallery-hint">
-          Connect to see your saved collection. You can prepare a card now.
-        </p>
+        <p class="hint" id="gallery-hint">Your saved artwork cards appear here.</p>
         <div id="card-list" class="card-list"></div>
         <button id="new-card" class="full">+ New card</button>
         <div class="gallery-tools">
@@ -75,7 +70,7 @@
       </aside>
       <section class="preview-space" aria-label="Artwork preview">
         <div class="preview-heading">
-          <h2 id="editing-title">Your next favorite.</h2>
+          <h2 id="editing-title">Your artwork</h2>
           <p>Drag your artwork to find its place.</p>
         </div>
         <div class="badge-object">
@@ -168,7 +163,7 @@
             </button>
           </fieldset>
           <label class="color-label"
-            >Letterbox color<input id="background" type="color" value="#000000"
+            >Letterbox color<input id="background" type="color" value="#f1f3f5"
           /></label>
         </form>
       </section>
@@ -205,7 +200,17 @@
         <h2>Device settings</h2>
         <button id="device-close">Close</button>
       </div>
+      <div id="remembered-badge" class="remembered-badge" hidden>
+        <span id="remembered-label"></span>
+        <button id="forget-badge" class="text-button" type="button">Forget badge</button>
+      </div>
       <form id="settings-form">
+        <label
+          >Badge theme<select id="badge-theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select></label
+        >
         <label
           >Brightness <output id="brightness-output"></output
           ><input id="brightness" type="range" min="5" max="100"
@@ -233,7 +238,7 @@
       </form>
       <details>
         <summary>Advanced</summary>
-        <pre id="system-info"></pre>
+        <p id="system-info" class="hint"></p>
         <button id="calibrate-touch">Calibrate touchscreen</button>
         <p class="hint">
           Touch each crosshair on the badge. If touch becomes unusable, hold its BOOT button for 6

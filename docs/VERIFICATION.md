@@ -1,5 +1,63 @@
 # Verification record — 2026-10-27
 
+## 2.3.2 release UX and revocation recovery
+
+Implemented on `main`; CYD2USB firmware compiled and flashed through the guarded
+uploader. Local application image: 1,668,128 bytes; static RAM: 73,720 bytes.
+
+- Disconnected website: landing page with Connect and Install firmware. Editor
+  hidden before paint; disconnect retains drafts for reconnect. Fresh/empty
+  previews use neutral gray instead of generated sample artwork. Light surfaces
+  are white, with independent device and website themes.
+- Empty firmware collections start empty, without a built-in card. Existing
+  saved artwork is preserved. A first successful editor connection can show a
+  neutral empty screen until the first artwork upload.
+- Submenu arrows return to their parent; only the main menu closes to artwork.
+  Icon labels use content sizing and centered alignment. **The owner physically
+  confirmed parent navigation, centered X and readable dark theme.**
+- Device theme is saved in CRC-checked settings schema 4. Validated schema 3 and
+  schema 2 records are migrated and retained. Both light and dark survived real
+  restart tests; the original theme, artwork, calibration, other settings and BLE
+  bond were restored and checked afterward.
+- Release menus omit developer diagnostics. Benchmark commands are excluded
+  unless `BADGE_DIAGNOSTICS=1`; serial status is retained for support/testing.
+- Device Forget editors rotates application credentials and disconnects the
+  editor while retaining the OS encryption bond. Revoked credentials were
+  rejected over real BLE; the new four-letter code paired and three subsequent
+  refreshes reconnected without another chooser/code or manually forgetting the
+  OS device. No temporary test pairing agent was used for this check.
+- **Twenty simulated-GATT Chromium tests pass**, including the landing state,
+  neutral preview, white light mode, device theme control, bounded reconnect
+  retries, interrupted-session isolation and legacy protocol compatibility.
+  Host ASan/UBSan, codec, flash-policy and site-packaging checks pass.
+
+The first desktop reproduction exposed `No agent available` in BlueZ: a running
+daemon alone was insufficient. Earlier headless tests used a temporary agent and
+therefore missed this desktop failure. With the owner's approval, Noctalia was
+restarted, its native agent registered, and an initial persistent OS bond was
+established through that agent. Linux Chromium's first-time pairing support is
+limited; the landing page now explains initial system pairing. This is distinct
+from the badge's four-letter application code.
+
+Another real reproduction paired successfully, then timed out after refreshing
+during a saved-artwork download. Linux retained the physical BLE connection and
+the badge retained the abandoned response. Protocol 2 adds an explicit encrypted
+session reset and a fresh sequence before authentication. It aborts only temporary
+uploads/old responses; committed artwork remains intact. Old asynchronous browser
+operations cannot disconnect a newer session. The real saved-artwork case then
+passed three consecutive refreshes.
+
+Pre-update full snapshot: `backups/before-release-ux-4mb.bin`, 4,194,304 bytes,
+SHA-256 `40e80e751efda4e12dbe62a3054a86f3fafee32c476a6d6c08cc3c18e2e1adaf`.
+The authorized Noctalia restart also has a local configuration snapshot under
+ignored `backups/noctalia-before-restart/`. No partition changes or erases occurred.
+
+Local evidence is under ignored `test-results/`: `release-ux-host.log`,
+`release-ux-browser.log`, `release-ux-upload.log`, `release-ux-theme-reboot.json`,
+`release-ux-native-browser.log`, `release-ux-after-revoke.log` and
+`short-code-browser.json`. Physical touch latency, tearing, phone acceptance and
+browser USB flashing retain the limitations listed in earlier records below.
+
 ## 2.3.1 connection and onboarding correction
 
 Released source: `f6b5742cddc1` on `main`.

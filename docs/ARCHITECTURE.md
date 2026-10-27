@@ -62,9 +62,10 @@ write ranges and compiled partition addresses. Saved Wi-Fi credentials remain in
 exposes them. Wi-Fi editing is no longer offered. Older single-sketch or 2.5 MiB
 layouts need a backup and explicit offline migration, not this update manifest.
 
-Schema 3 uses a separate CRC-checked NVS key `settings3`, migrates the validated
-original `settings` blob without deleting it, and adds timeout, provisioning and
-a device-specific pairing key. Normal selection/setting changes coalesce for
+Schema 4 uses a separate CRC-checked NVS key `settings4`, preserves and migrates
+validated `settings3` and original `settings` blobs, and adds the device's saved
+dark/light theme. Schema 3 introduced timeout, provisioning and a device-specific
+pairing key. Normal selection/setting changes coalesce for
 1.5 seconds; restart flushes pending writes. Provisioning also derives from a
 valid manifest and an available image at boot, so interrupted NVS writes cannot
 strand a successfully saved first card. Corrupt settings fall back to retained
@@ -98,8 +99,10 @@ partial upload and session credentials are discarded. A 15-second inactivity
 timeout applies per active transfer; the whole card may take longer.
 
 The link uses encrypted GATT with NoInputNoOutput pairing and retained bonding
-keys. Link security starts on connect before encrypted reads. Physical revocation
-also deletes saved BLE bonds. This is combined with application-level
+keys. The central establishes security through encrypted GATT access rather than
+racing service discovery with a peripheral-initiated SMP request. Physical editor
+revocation retains the OS bond and rotates application credentials. This avoids
+one-sided bond deletion breaking Linux reconnection. This is combined with application-level
 ownership through a random per-device credential. A four-letter code is derived
 from it without changing the settings schema. Manual code and QR-code pairing are
 accepted only while the physical connection screen is open. Five failed attempts
@@ -111,11 +114,20 @@ credential in localStorage; subsequent visits use `getDevices()` and reauthentic
 without showing a chooser or requiring code entry where supported. Unavailable
 devices remain disconnected. Forget badge clears browser access data while
 preserving editor changes; physical Settings → Advanced → Revoke editor access
-rotates the credential/code, deletes bonds and disconnects editors. Legacy strong
+rotates the credential/code and disconnects editors. Legacy strong
 QR keys remain accepted for compatibility. A photographed short code remains
 usable while the connection screen is open until revoked. BLE encryption without
 MITM protection is not a substitute for the ownership check. Browser
 support depends on OS, Bluetooth daemon/agent and secure Web Bluetooth support.
+Linux Chromium may need one initial pairing in system Bluetooth settings; an
+active desktop pairing agent is required. A running daemon alone is insufficient.
+
+Protocol 2 adds an encrypted operation-6 session reset, acknowledged before
+authentication. Page reloads can leave the physical BLE connection alive while
+abandoning an artwork response. The reset closes that response, aborts temporary
+uploads, revokes the previous API session and accepts a new random sequence.
+Committed artwork is untouched. Late response acknowledgements are ignored.
+The browser also supports protocol 1 and briefly retries GATT teardown races.
 
 Advertising carries the complete device name in its primary packet and the
 service UUID in its scan response. Browser filters accept either identity field,
@@ -132,6 +144,15 @@ Transforms persist when selecting other cards in the tab; after reconnect/reload
 previously saved cards start from their flattened on-device artwork.
 
 ## Design and deployment
+
+Disconnected visitors see a landing page with Connect and Install firmware only;
+the editor is hidden before first paint. Connection exposes the gallery/editor.
+Empty previews use theme-independent neutral gray, without sample artwork. Saved
+cards remain intact. Disconnect hides the editor while retaining unsaved state
+for reconnect. Light mode uses white surfaces; device theme is independent.
+Device submenu arrows return to their parent, and only the main menu closes to
+artwork. Release menus omit diagnostics; benchmark commands require an explicit
+`BADGE_DIAGNOSTICS=1` build. Serial status remains available for support/testing.
 
 The frontend-design skill guided a symmetrical charcoal enclosure as the focal
 object, local Montserrat headings, quiet mist surfaces, cobalt controls and coral

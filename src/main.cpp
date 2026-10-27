@@ -91,9 +91,17 @@ void act(Command c, int value) {
     }
     case Command::RevokePairing:
         if (settings.revokePairing()) {
-            bluetooth.revoke(true);
+            // Revoke editor credentials, not the OS encryption bond. Deleting
+            // one side of a bond breaks subsequent browser reconnection.
+            bluetooth.revoke();
             ui.page(Page::Pairing);
         }
+        return;
+    case Command::Theme:
+        s.darkMode = !s.darkMode;
+        break;
+    case Command::Back:
+        ui.goBack();
         return;
     case Command::CloseSetup:
         pendingClose = true;
@@ -132,8 +140,6 @@ void serialCommand(const String &s) {
         ui.page(Page::Menu);
     else if (s == "badge")
         ui.page(Page::Badge);
-    else if (s == "diag")
-        ui.page(Page::Diagnostics);
     else if (s == "rotate")
         act(Command::Rotate, 0);
     else if (s == "calibrate")
@@ -142,6 +148,7 @@ void serialCommand(const String &s) {
         ui.sleep();
     else if (s == "wake")
         ui.wake();
+#if defined(BADGE_DIAGNOSTICS) && BADGE_DIAGNOSTICS
     else if (s == "bench-menu")
         ui.benchmarkMenu();
     else if (s == "bench-lvgl")
@@ -152,6 +159,7 @@ void serialCommand(const String &s) {
         ui.benchmarkMode(false);
     else if (s == "render-stream")
         ui.benchmarkMode(true);
+#endif
     else if (s == "onboarding")
         ui.page(Page::Pairing);
     else if (s == "setup")
@@ -164,9 +172,15 @@ void serialCommand(const String &s) {
         act(Command::Restart, 0);
     else if (s == "brightness")
         act(Command::Brightness, 0);
+    else if (s == "revoke")
+        act(Command::RevokePairing, 0);
+    else if (s == "theme")
+        act(Command::Theme, 0);
+    else if (s == "back")
+        act(Command::Back, 0);
     else
-        Serial.println("Commands: status next prev menu badge diag rotate calibrate setup close "
-                       "storage-init brightness restart sleep wake bench-lvgl bench-stream");
+        Serial.println("Commands: status next prev menu badge rotate calibrate setup close "
+                       "storage-init brightness theme back revoke restart sleep wake");
 }
 } // namespace
 void setup() {
@@ -174,7 +188,7 @@ void setup() {
     delay(100);
     serialLine.reserve(96);
     pinMode(board::boot, INPUT_PULLUP);
-    Serial.printf("\nLanyardBadge 2.3.1 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
+    Serial.printf("\nLanyardBadge 2.3.2 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
                   ESP.getChipModel(), ESP.getChipRevision(), unsigned(ESP.getFlashChipSize()),
                   unsigned(ESP.getPsramSize()), int(esp_reset_reason()));
     if (!settings.begin())
@@ -214,10 +228,7 @@ void setup() {
     };
     network.showBadge = [] { ui.page(Page::Badge); };
     network.pairingCodeAllowed = [] { return ui.currentPage() == Page::Pairing; };
-    network.paired = [] {
-        if (settings.value.provisioned && ui.currentPage() == Page::Pairing)
-            ui.page(Page::Badge);
-    };
+    network.paired = [] { ui.paired(); };
     network.deviceStatus = [](JsonDocument &d) {
         d["screen"] = ui.currentPage() == Page::Badge         ? "badge"
                       : ui.currentPage() == Page::Calibration ? "calibration"
@@ -229,6 +240,9 @@ void setup() {
         d["touchRawX"] = touch.raw().x;
         d["touchRawY"] = touch.raw().y;
         d["bluetoothConnected"] = bluetooth.connected();
+        d["bluetoothDisconnectReason"] = bluetooth.disconnectReason();
+        d["bluetoothEncrypted"] = bluetooth.encrypted();
+        d["bluetoothBonds"] = bluetooth.bonds();
         d["bluetoothAdvertising"] = bluetooth.advertising();
         d["bluetoothName"] = bluetooth.name();
         d["bluetoothInitialIntervalMs"] = bluetooth.initialIntervalMs();

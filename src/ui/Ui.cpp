@@ -15,7 +15,7 @@ struct ImageFile {
     File source;
     CachedReader<4096> reader;
 };
-constexpr uint32_t ink = 0x23324d, blue = 0x3659d9, frost = 0xf3f6fc;
+constexpr uint32_t blue = 0x3659d9;
 constexpr Point targets[] = {{24, 24}, {215, 24}, {24, 295}, {215, 295}};
 const lv_font_t *font(unsigned n) {
     return n == 28   ? &lv_font_montserrat_28
@@ -148,11 +148,11 @@ lv_obj_t *Ui::button(lv_obj_t *p, const char *txt, int action) {
     auto *b = lv_button_create(p);
     lv_obj_set_size(b, 208, 44);
     lv_obj_set_style_radius(b, 10, 0);
-    lv_obj_set_style_bg_color(b, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(surface()), 0);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
-    lv_obj_set_style_text_color(b, lv_color_hex(ink), 0);
-    lv_obj_set_style_bg_color(b, lv_color_hex(0xd9ceff), LV_STATE_PRESSED);
+    lv_obj_set_style_text_color(b, lv_color_hex(ink()), 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(selectedColor()), LV_STATE_PRESSED);
     auto *l = lv_label_create(b);
     lv_label_set_text(l, txt);
     lv_obj_set_width(l, 184);
@@ -179,17 +179,38 @@ void Ui::event(lv_event_t *e) {
     if (u->command)
         u->command(static_cast<Command>(a), 0);
 }
+void Ui::back() {
+    Page target = Page::Menu;
+    switch (page_) {
+    case Page::Menu: target = Page::Badge; break;
+    case Page::Advanced:
+    case Page::Info: target = Page::Settings; break;
+    case Page::Calibration:
+    case Page::Storage:
+    case Page::RePair: target = Page::Advanced; break;
+    default: break;
+    }
+    page(target);
+}
 void Ui::header(const char *title) {
     auto *root = lv_screen_active();
-    label(root, title, 16, 14, 172, 28, font(20), ink);
-    auto *b = button(root, LV_SYMBOL_CLOSE, -1 - int(Page::Badge));
-    lv_obj_set_pos(b, 192, 4);
+    bool close = page_ == Page::Menu;
+    label(root, title, close ? 16 : 60, 14, 172, 28, font(20), ink());
+    auto *b = button(root, close ? LV_SYMBOL_CLOSE : LV_SYMBOL_LEFT, int(Command::Back));
+    lv_obj_set_pos(b, close ? 192 : 4, 4);
     lv_obj_set_size(b, 44, 44);
-    auto *l = lv_obj_get_child(b, 0);
-    lv_obj_set_width(l, 24);
-    lv_obj_center(l);
+    lv_obj_set_style_pad_all(b, 0, 0);
+    auto *icon = lv_obj_get_child(b, 0);
+    lv_obj_set_size(icon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_text_font(icon, font(20), 0);
+    lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(icon);
 }
 void Ui::renderBadge(lv_obj_t *root) {
+    if (!assets_.deck.count) {
+        lv_obj_set_style_bg_color(root, lv_color_hex(0xf1f3f5), 0);
+        return;
+    }
     if (selected_ >= assets_.deck.count)
         selected_ = 0;
     auto &c = assets_.deck.cards[selected_];
@@ -307,6 +328,7 @@ bool Ui::streamArtwork() {
     artworkUs_ = micros() - started;
     return true;
 }
+#if defined(BADGE_DIAGNOSTICS) && BADGE_DIAGNOSTICS
 void Ui::benchmark(bool streaming) {
     if (!assets_.deck.count) {
         Serial.println("BENCH requires saved artwork");
@@ -358,6 +380,7 @@ void Ui::benchmarkMenu() {
                   (unsigned long)full, (unsigned long)(total / 10), (unsigned long)maximum);
     page(previous);
 }
+#endif
 void Ui::diagnostics(JsonDocument &d) const {
     d["screenAsleep"] = activity_.asleep();
     d["wakeConsumed"] = activity_.consumed();
@@ -412,6 +435,7 @@ void Ui::render() {
     dirty_ = false;
     direct_ = false;
     renderedPage_ = page_;
+    renderedTheme_ = settings_.value.darkMode;
     lv_display_enable_invalidation(lvDisplay_, true);
     ignore_ = true;
     gestures_.reset();
@@ -420,7 +444,7 @@ void Ui::render() {
     auto *root = lv_screen_active();
     lv_obj_clean(root);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(root, lv_color_hex(frost), 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(frost()), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_style_text_font(root, font(14), 0);
     if (page_ == Page::Badge) {
@@ -430,16 +454,10 @@ void Ui::render() {
             return;
         }
         renderBadge(root);
-        if (false) {
-            auto *hint = label(root, "Tap to set up touch", 0, 292, 240, 28, font(14), 0xffffff);
-            lv_obj_set_style_bg_color(hint, lv_color_hex(ink), 0);
-            lv_obj_set_style_bg_opa(hint, LV_OPA_COVER, 0);
-            lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-        }
         return;
     }
     if (page_ == Page::Calibration) {
-        lv_obj_set_style_bg_color(root, lv_color_hex(ink), 0);
+        lv_obj_set_style_bg_color(root, lv_color_hex(0x18212b), 0);
         char hint[96];
         snprintf(hint, sizeof(hint), "Touch setup %d / 4\nPress + briefly,\nthen lift your finger",
                  calibrationStep_ + 1);
@@ -453,48 +471,21 @@ void Ui::render() {
                        targets[calibrationStep_].y - 17);
         return;
     }
-    if (page_ == Page::Diagnostics) {
-        header("Portrait test");
-        label(root, "Top: this edge is UP", 16, 60, 208, 24, font(14), ink);
-        const char *names[] = {"Red", "Green", "Blue", "White"};
-        const uint32_t colors[] = {0xff0000, 0x00ff00, 0x0000ff, 0xffffff};
-        for (unsigned i = 0; i < 4; ++i) {
-            auto *o = lv_obj_create(root);
-            plain(o);
-            lv_obj_set_pos(o, 12 + i * 56, 98);
-            lv_obj_set_size(o, 48, 62);
-            lv_obj_set_style_bg_color(o, lv_color_hex(colors[i]), 0);
-            lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
-            label(root, names[i], 12 + i * 56, 166, 54, 20, font(14), ink);
-        }
-        label(root, "USB connectors below\nTap each corner to test touch", 12, 200, 220, 48,
-              font(14), ink);
-        auto *b = button(root, "Flip portrait 180 degrees", int(Command::Rotate));
-        lv_obj_set_pos(b, 16, 264);
-        touchDot_ = lv_obj_create(root);
-        plain(touchDot_);
-        lv_obj_set_size(touchDot_, 10, 10);
-        lv_obj_set_style_radius(touchDot_, 5, 0);
-        lv_obj_set_style_bg_color(touchDot_, lv_color_hex(blue), 0);
-        lv_obj_set_style_bg_opa(touchDot_, LV_OPA_COVER, 0);
-        lv_obj_add_flag(touchDot_, LV_OBJ_FLAG_HIDDEN);
-        return;
-    }
     if (page_ == Page::Storage) {
         header("Storage setup");
         label(root,
               "Initialize blank storage?\n\nOnly an entirely erased partition can be initialized. "
               "Existing or damaged files are never erased.",
-              16, 70, 208, 150, font(14), ink);
+              16, 70, 208, 150, font(14), ink());
         auto *b = button(root, "Initialize storage", int(Command::Storage));
         lv_obj_set_pos(b, 16, 258);
         return;
     }
     if (page_ == Page::Pairing) {
         auto *title = label(root, settings_.value.provisioned ? "Connect to editor" : "Lanyard Badge",
-                            16, 22, 208, 28, font(20), ink);
+                            16, 22, 208, 28, font(20), ink());
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-        auto *hint = label(root, "Scan to connect\nand customize.", 12, 62, 216, 34, font(14), ink);
+        auto *hint = label(root, "Scan to connect\nand customize.", 12, 62, 216, 34, font(14), ink());
         lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
         String url = pairingUrl ? pairingUrl() : String("");
@@ -511,7 +502,7 @@ void Ui::render() {
         lv_qrcode_set_light_color(qr, lv_color_white());
         lv_qrcode_update(qr, url.c_str(), url.length());
         String manualKey = String("Code: ") + settings_.pairingCode();
-        auto *key = label(root, manualKey.c_str(), 8, 294, 224, 26, font(20), ink);
+        auto *key = label(root, manualKey.c_str(), 8, 294, 224, 26, font(20), ink());
         lv_obj_set_style_text_align(key, LV_TEXT_ALIGN_CENTER, 0);
         return;
     }
@@ -536,7 +527,7 @@ void Ui::render() {
         for (unsigned i = 0; i < assets_.deck.count; ++i) {
             auto *b = button(list, assets_.deck.cards[i].title, 1000 + i);
             if (i == selected_)
-                lv_obj_set_style_bg_color(b, lv_color_hex(0xd9ceff), 0);
+                lv_obj_set_style_bg_color(b, lv_color_hex(selectedColor()), 0);
         }
         return;
     }
@@ -545,26 +536,26 @@ void Ui::render() {
         auto *l = lv_label_create(list);
         lv_obj_set_width(l, 208);
         lv_label_set_text(l, text.c_str());
-        lv_obj_set_style_text_color(l, lv_color_hex(ink), 0);
+        lv_obj_set_style_text_color(l, lv_color_hex(ink()), 0);
         return;
     }
     if (page_ == Page::Advanced) {
-        button(list, "Diagnostics", -1 - int(Page::Diagnostics));
         button(list, "Calibrate touch", -1 - int(Page::Calibration));
-        button(list, "Revoke editor access", -1 - int(Page::RePair));
+        button(list, "Forget editors", -1 - int(Page::RePair));
         if (assets_.canProvision())
             button(list, "Set up storage", -1 - int(Page::Storage));
         button(list, "Restart badge", int(Command::Restart));
         return;
     }
     if (page_ == Page::RePair) {
-        label(list, "Disconnect all editors and replace the QR key? Scan again to reconnect.", 0, 0,
-              208, 90, font(14), ink);
-        button(list, "Revoke and show new QR", int(Command::RevokePairing));
+        label(list, "Forget connected editors? A new code will be shown. Cards and settings stay saved.", 0, 0,
+              208, 90, font(14), ink());
+        button(list, "Forget editors", int(Command::RevokePairing));
         return;
     }
     if (page_ == Page::Settings) {
-        button(list, "Device information", -1 - int(Page::Info));
+        button(list, settings_.value.darkMode ? "Theme: dark" : "Theme: light", int(Command::Theme));
+        button(list, "About this badge", -1 - int(Page::Info));
         button(list, "Advanced", -1 - int(Page::Advanced));
         return;
     }
@@ -588,7 +579,7 @@ void Ui::render() {
 }
 void Ui::page(Page p) {
     wake();
-    if (p == Page::Badge && (!assets_.deck.count || !settings_.value.provisioned))
+    if (p == Page::Badge && !settings_.value.provisioned && !pairedOnce_)
         p = Page::Pairing;
     page_ = p;
     dirty_ = true;
@@ -674,14 +665,6 @@ void Ui::tick() {
         ignore_ = false;
     if (page_ == Page::Calibration)
         calibrationTick();
-    if (page_ == Page::Diagnostics && touchDot_ && !dirty_) {
-        if (touch_.down()) {
-            auto p = touch_.point();
-            lv_obj_set_pos(touchDot_, p.x - 5, p.y - 5);
-            lv_obj_remove_flag(touchDot_, LV_OBJ_FLAG_HIDDEN);
-        } else
-            lv_obj_add_flag(touchDot_, LV_OBJ_FLAG_HIDDEN);
-    }
     bool wasAsleep = activity_.asleep();
     activity_.update(millis(), settings_.value.screenTimeout, touch_.down(),
                      busy_ || page_ == Page::Calibration);
@@ -704,7 +687,8 @@ void Ui::tick() {
             command(touch_.point().x < 120 ? Command::Previous : Command::Next, 0);
     }
     if (dirty_) {
-        if ((page_ == Page::Display || page_ == Page::Slideshow) && renderedPage_ == page_) {
+        if ((page_ == Page::Display || page_ == Page::Slideshow) && renderedPage_ == page_ &&
+            renderedTheme_ == settings_.value.darkMode) {
             dirty_ = false;
             updateControls();
         } else
@@ -744,7 +728,7 @@ void Ui::uploadProgress(int percent) {
     }
     if (!progress_) {
         progress_ = label(lv_layer_top(), "", 0, 294, 240, 26, font(14), 0xffffff);
-        lv_obj_set_style_bg_color(progress_, lv_color_hex(ink), 0);
+        lv_obj_set_style_bg_color(progress_, lv_color_hex(ink()), 0);
         lv_obj_set_style_bg_opa(progress_, LV_OPA_COVER, 0);
         lv_obj_set_style_text_align(progress_, LV_TEXT_ALIGN_CENTER, 0);
     }

@@ -20,14 +20,15 @@ enum class Command {
     Storage,
     Select,
     Timeout,
-    RevokePairing
+    RevokePairing,
+    Theme,
+    Back
 };
 enum class Page {
     Badge,
     Menu,
     Gallery,
     Info,
-    Diagnostics,
     Calibration,
     Storage,
     Pairing,
@@ -63,6 +64,8 @@ class Ui {
     uint32_t artworkUs_ = 0;
     int lastProgress_ = -2;
     bool streaming_ = true, direct_ = false;
+    bool pairedOnce_ = false;
+    uint32_t renderedTheme_ = 2;
     void render();
     bool streamArtwork();
     void updateControls();
@@ -71,6 +74,11 @@ class Ui {
     lv_obj_t *label(lv_obj_t *, const char *, int, int, int, int, const lv_font_t *, uint32_t);
     lv_obj_t *button(lv_obj_t *, const char *, int action);
     void header(const char *);
+    void back();
+    uint32_t ink() const { return settings_.value.darkMode ? 0xf2f5f9 : 0x23324d; }
+    uint32_t surface() const { return settings_.value.darkMode ? 0x26313e : 0xffffff; }
+    uint32_t frost() const { return settings_.value.darkMode ? 0x18212b : 0xf8fafc; }
+    uint32_t selectedColor() const { return settings_.value.darkMode ? 0x354d71 : 0xdce8ff; }
     static void event(lv_event_t *);
 
   public:
@@ -83,6 +91,12 @@ class Ui {
     void tick();
     void pump();
     void page(Page p);
+    void goBack() { back(); }
+    void paired() {
+        pairedOnce_ = true;
+        if (page_ == Page::Pairing)
+            page(Page::Badge);
+    }
     Page currentPage() const { return page_; }
     void invalidate() { dirty_ = true; }
     void select(unsigned index);
@@ -99,13 +113,17 @@ class Ui {
         activity_.sleep();
         display_.brightness(0);
     }
+#if defined(BADGE_DIAGNOSTICS) && BADGE_DIAGNOSTICS
     void benchmarkMode(bool streaming) {
         streaming_ = streaming;
         invalidate();
     }
+#endif
     void diagnostics(JsonDocument &) const;
+#if defined(BADGE_DIAGNOSTICS) && BADGE_DIAGNOSTICS
     void benchmark(bool streaming);
     void benchmarkMenu();
+#endif
     void orientation();
     void uploadProgress(int percent);
 };

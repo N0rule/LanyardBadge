@@ -16,7 +16,7 @@
     name: '',
     description: '',
     url: '',
-    background: 0,
+    background: 0xf1f3f5,
     foreground: 0xffffff,
     accent: 0x2151dc,
     texts: [],
@@ -52,6 +52,8 @@
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   const card = () => deck.cards[selected];
   function connectionMessage(error) {
+    if (error.bluetoothStage === 'pairing')
+      return 'Bluetooth pairing did not finish. Accept the system’s Bluetooth pairing request, then connect again.';
     if (error.name === 'NetworkError')
       return 'Bluetooth could not establish a connection. Keep the badge nearby, close other connected tabs, and try again. On Linux, also check that the Bluetooth service is running.';
     if (error.name === 'NotFoundError')
@@ -137,21 +139,9 @@
   function draw() {
     const c = card(),
       s = states.get(c.id);
-    context.fillStyle = hex(c.background);
+    context.fillStyle = s ? hex(c.background) : '#f1f3f5';
     context.fillRect(0, 0, 240, 320);
     if (s) BadgeArtwork.draw(context, s.image, s, hex(c.background));
-    else if (!c.image) {
-      context.fillStyle = '#2457df';
-      context.beginPath();
-      context.arc(66, 90, 72, 0, Math.PI * 2);
-      context.fill();
-      context.fillStyle = '#ed765c';
-      context.fillRect(82, 142, 160, 180);
-      context.fillStyle = '#c5d8f8';
-      context.beginPath();
-      context.arc(56, 273, 65, 0, Math.PI * 2);
-      context.fill();
-    }
     if (c.mode !== 'artwork') {
       // Legacy layouts remain untouched in storage and on device; preview says so explicitly.
       context.fillStyle = '#000c';
@@ -282,6 +272,11 @@
       $('device-open').disabled = true;
       $('show-card').disabled = true;
       $('welcome').hidden = false;
+      $('studio').hidden = true;
+      $('device-open').hidden = true;
+      $('disconnect-top').hidden = true;
+      $('draft-kept').hidden = !changed;
+      $('device-dialog').close();
     }
   });
   async function finishPair(password) {
@@ -309,6 +304,9 @@
     } else if (remembered?.id === transport.device?.id) forgetRemembered();
     $('connect').textContent = 'Disconnect';
     $('welcome').hidden = true;
+    $('studio').hidden = false;
+    $('device-open').hidden = false;
+    $('disconnect-top').hidden = false;
     $('device-open').disabled = false;
     $('show-card').disabled = false;
     $('gallery-hint').textContent = 'Your collection stays on the badge.';
@@ -323,9 +321,27 @@
     connectionPending = true;
     $('connect').disabled = true;
     try {
-      if (transport.device) await transport.reconnect();
-      else if (!automatic) await transport.connect(intendedName);
-      else return;
+      if (automatic) await new Promise((resolve) => setTimeout(resolve, 250));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          if (transport.device) await transport.reconnect();
+          else if (!automatic) await transport.connect(intendedName);
+          else return;
+          break;
+        } catch (error) {
+          // Reload can outrun the previous page's GATT teardown, especially
+          // while a saved artwork download is active. Reuse its granted device.
+          if (
+            !transport.device ||
+            error.bluetoothStage === 'pairing' ||
+            attempt >= 2 ||
+            !['NetworkError', 'UnknownError'].includes(error.name)
+          )
+            throw error;
+          transport.change('reconnecting');
+          await new Promise((resolve) => setTimeout(resolve, attempt ? 900 : 350));
+        }
+      }
       if (!key && remembered?.id === transport.device?.id) key = remembered.credential;
       if (key) await finishPair(key);
       else $('pair-dialog').showModal();
@@ -342,6 +358,7 @@
     }
   }
   $('connect').onclick = () => connectBadge();
+  $('disconnect-top').onclick = () => transport.disconnect();
   $('forget-badge').onclick = () => {
     transport.disconnect();
     transport.device = null;
@@ -375,7 +392,15 @@
   if (!BluetoothTransport.supported()) {
     $('connection').textContent = 'Unsupported browser';
     $('compatibility').textContent =
-      'This browser cannot connect over Bluetooth. Open this site in Chrome or Edge on a supported desktop or Android device. iOS Safari is unsupported. You can still prepare artwork here.';
+      'This browser cannot connect over Bluetooth. Open this site in Chrome or Edge on a supported desktop or Android device. iOS Safari is unsupported. USB installation requires desktop Web Serial.';
+  }
+  if (
+    BluetoothTransport.supported() &&
+    /Linux/.test(navigator.userAgent) &&
+    !/Android/.test(navigator.userAgent)
+  ) {
+    $('compatibility').textContent =
+      'On Linux, pair your badge once in the system Bluetooth settings, then connect here. The browser will remember your badge.';
   }
   $('card-form').onsubmit = (e) => e.preventDefault();
   $('title').oninput = (e) => {
@@ -647,7 +672,9 @@
       $('screen-timeout').value = status.screenTimeout ?? 120;
       $('autoplay').checked = status.autoplay;
       $('interval').value = status.interval;
-      $('system-info').textContent = JSON.stringify(status, null, 2);
+      $('badge-theme').value = status.darkMode === false ? 'light' : 'dark';
+      $('system-info').textContent =
+        `${status.bluetoothName || 'Lanyard Badge'} · Firmware ${status.firmware || 'unknown'}`;
       $('device-dialog').showModal();
     } catch (e) {
       toast(e.message);
@@ -661,6 +688,7 @@
       updateStatus(
         await transport.updateSettings({
           brightness: Number($('brightness').value),
+          darkMode: $('badge-theme').value === 'dark',
           screenTimeout: Number($('screen-timeout').value),
           autoplay: $('autoplay').checked,
           interval: Number($('interval').value),

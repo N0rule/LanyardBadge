@@ -52,6 +52,7 @@
       this.tail = Promise.resolve();
       this.pending = null;
       this.packetBytes = 20;
+      this.session = 0;
     }
     static supported() {
       return !!globalThis.isSecureContext && !!globalThis.navigator?.bluetooth;
@@ -96,6 +97,7 @@
       }
     }
     async open() {
+      ++this.session;
       this.change('connecting');
       const server = await this.device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE);
@@ -108,11 +110,35 @@
       this.tx.addEventListener('characteristicvaluechanged', this.notifyListener);
       // The encrypted read completes link security before writing the
       // notification subscription. Fast reconnects can otherwise race bonding.
-      const hello = await this.tx.readValue();
-      if (hello.byteLength !== 3 || hello.getUint8(0) !== 1)
+      this.change('pairing');
+      const deadline = Date.now() + 45000;
+      let hello;
+      for (;;) {
+        try {
+          hello = await this.tx.readValue();
+          break;
+        } catch (error) {
+          const securityPending =
+            ['NetworkError', 'UnknownError'].includes(error.name) ||
+            /GATT.*(unknown|authenticat|encrypt|authoriz)/i.test(error.message);
+          if (!securityPending || !this.device.gatt.connected || Date.now() >= deadline) {
+            error.bluetoothStage = 'pairing';
+            throw error;
+          }
+          // BlueZ can reject an encrypted read while its desktop confirmation
+          // is still open. Keep the connection and allow time to approve it.
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+      if (hello.byteLength !== 3 || ![1, 2].includes(hello.getUint8(0)))
         throw Error('This badge needs a compatible firmware update.');
       this.packetBytes = Math.min(512, Math.max(20, hello.getUint16(1, true) - 3));
       await this.tx.startNotifications();
+      if (hello.getUint8(0) >= 2) {
+        this.sequence = crypto.getRandomValues(new Uint16Array(1))[0];
+        this.response = null;
+        await this.acknowledged(6, 0, undefined, 0);
+      }
       this.change('pairing');
     }
     async reconnect() {
@@ -127,6 +153,7 @@
       }
     }
     lost() {
+      ++this.session;
       this.change('disconnected');
       this.token = '';
       this.pending?.reject(
@@ -148,12 +175,16 @@
     }
     write(op, offset, data) {
       const packet = this.frame(op, this.sequence, offset, data),
-        rx = this.rx;
+        rx = this.rx,
+        session = this.session;
       // Notifications can complete a response before the ACK write promise resolves.
       // Serialize ALL writes, including response ACKs, independently of requests.
       const operation = (this.writeTail || Promise.resolve())
         .catch(() => {})
-        .then(() => rx.writeValueWithResponse(packet));
+        .then(() => {
+          if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+          return rx.writeValueWithResponse(packet);
+        });
       this.writeTail = operation;
       return operation;
     }
@@ -251,6 +282,7 @@
       return operation;
     }
     async transfer(path, { method = 'GET', body, raw = false, progress } = {}) {
+      const session = this.session;
       if (!this.device?.gatt.connected) throw Error('Connect your badge to continue.');
       this.sequence = (this.sequence + 1) & 65535;
       this.response = null;
@@ -286,7 +318,11 @@
         }
         return r;
       } catch (e) {
-        if (!e.deviceResponse || (e.status === 401 && path !== '/api/pair')) this.disconnect();
+        if (
+          session === this.session &&
+          (!e.deviceResponse || (e.status === 401 && path !== '/api/pair'))
+        )
+          this.disconnect();
         throw e;
       }
     }

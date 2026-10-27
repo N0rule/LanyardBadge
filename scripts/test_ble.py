@@ -20,6 +20,7 @@ class Protocol:
         self.queue = asyncio.Queue()
         self.seq = 0
         self.token = ""
+        self.initialized = False
 
     def notified(self, _, data):
         self.queue.put_nowait(bytes(data))
@@ -45,6 +46,11 @@ class Protocol:
 
     async def request(self, path, body=None, raw=False):
         print("BLE request", path, flush=True)
+        if not self.initialized:
+            hello = await self.client.read_gatt_char(TX)
+            if hello[0] >= 2:
+                await self.ack(6, 0)
+            self.initialized = True
         self.seq = (self.seq + 1) & 65535
         payload = (
             body if raw else json.dumps(body).encode() if body is not None else b""

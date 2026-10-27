@@ -42,7 +42,7 @@ bool Assets::begin() {
                 Serial.println("Could not restore backup filename");
         } else {
             defaults(deck);
-            Serial.println("No valid card database; built-in cards loaded");
+            Serial.println("No saved artwork collection; starting empty");
         }
     }
     // Never adopt an interrupted upload or an uncommitted manifest.

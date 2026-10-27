@@ -155,6 +155,11 @@ void Network::settings() {
         return;
     }
     auto before = settings_.value;
+    if (!d["darkMode"].isNull() && !d["darkMode"].is<bool>()) {
+        error(422, "Choose a light or dark display theme");
+        return;
+    }
+    settings_.value.darkMode = d["darkMode"] | bool(before.darkMode);
     settings_.value.screenTimeout = d["screenTimeout"] | before.screenTimeout;
     settings_.value.brightness = d["brightness"];
     settings_.value.interval = d["interval"];
@@ -219,7 +224,7 @@ void Network::dispatch(const String &path) {
 }
 JsonDocument Network::statusDocument() const {
     JsonDocument d;
-    d["firmware"] = "2.3.1";
+    d["firmware"] = "2.3.2";
     d["arduino"] = ESP_ARDUINO_VERSION_STR;
     d["heap"] = ESP.getFreeHeap();
     d["minHeap"] = ESP.getMinFreeHeap();
@@ -243,6 +248,7 @@ JsonDocument Network::statusDocument() const {
     d["activeCard"] = assets_.deck.count ? assets_.deck.cards[current].id : "";
     d["loopStackFree"] = uxTaskGetStackHighWaterMark(nullptr);
     d["brightness"] = settings_.value.brightness;
+    d["darkMode"] = bool(settings_.value.darkMode);
     d["autoplay"] = settings_.value.autoplay;
     d["interval"] = settings_.value.interval;
     d["rotation"] = settings_.value.rotation;
@@ -260,7 +266,7 @@ void Network::status() {
     json(200, d);
 }
 String Network::summary() const {
-    return String("LanyardBadge 2.3.1\n240 x 320 / USB power\nFree heap: ") + ESP.getFreeHeap() +
+    return String("Lanyard Badge\nFirmware 2.3.2") +
            "\nStorage: " + assets_.used() / 1024 + " / " + assets_.total() / 1024 +
            " KiB\nCards: " + assets_.deck.count;
 }

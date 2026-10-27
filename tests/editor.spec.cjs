@@ -21,6 +21,7 @@ async function setup(page, { mock = true, mobile = false } = {}) {
   return errors;
 }
 async function image(page) {
+  if (await page.locator('#studio').isHidden()) await connect(page);
   const data = await page.evaluate(() => {
     const c = document.createElement('canvas');
     c.width = 640;
@@ -288,6 +289,7 @@ test('four-letter pairing remembers the badge and reconnects after refresh witho
   expect(await page.evaluate(() => localStorage.getItem('ble.mock.choosers'))).toBe('1');
   await image(page);
   await page.locator('#title').fill('Keep this draft');
+  await page.locator('#device-open').click();
   await page.locator('#forget-badge').click();
   await expect(page.locator('#connection')).toHaveText('Disconnected');
   await expect(page.locator('#title')).toHaveValue('Keep this draft');
@@ -356,5 +358,117 @@ test('failed automatic reconnect stays disconnected and keeps remembered access 
   await page.locator('#connect').click();
   await expect(page.locator('#connection')).toHaveText('Connected');
   await expect(page.locator('#pair-dialog')).not.toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('disconnected landing has only connect and install, then opens a neutral empty editor', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await expect(page.locator('#studio')).toBeHidden();
+  await expect(page.locator('#welcome button:visible')).toHaveCount(2);
+  await expect(page.locator('#device-open')).toBeHidden();
+  await page.locator('#theme').selectOption('light');
+  expect(await page.locator('body').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe(
+    'rgb(255, 255, 255)',
+  );
+  await page.evaluate(() => {
+    bleMock.deck.cards = [];
+  });
+  await connect(page);
+  await expect(page.locator('#welcome')).toBeHidden();
+  await expect(page.locator('#studio')).toBeVisible();
+  const colors = await page.evaluate(() => {
+    const c = document.getElementById('preview'),
+      p = c.getContext('2d').getImageData(0, 0, 240, 320).data;
+    return Array.from(
+      new Set(
+        Array.from({ length: p.length / 4 }, (_, i) =>
+          [p[i * 4], p[i * 4 + 1], p[i * 4 + 2]].join(','),
+        ),
+      ),
+    );
+  });
+  expect(colors).toEqual(['241,243,245']);
+  await page.locator('#disconnect-top').click();
+  await expect(page.locator('#studio')).toBeHidden();
+  await expect(page.locator('#welcome')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('encrypted reads wait for native pairing and device theme is saved separately', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await page.evaluate(() => {
+    bleMock.securityFailures = 2;
+  });
+  await connect(page);
+  await page.locator('#device-open').click();
+  await expect(page.locator('#badge-theme')).toHaveValue('dark');
+  await page.locator('#badge-theme').selectOption('light');
+  await page.getByText('Save device settings', { exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText('Device settings saved.');
+  expect(await page.evaluate(() => bleMock.status.darkMode)).toBe(false);
+  expect(await page.evaluate(() => localStorage.getItem('ble.mock.choosers'))).toBe('1');
+  await expect(page.locator('#system-info')).not.toContainText('heap');
+  expect(errors).toEqual([]);
+});
+
+test('reconnect waits for the previous page GATT connection to finish closing', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await page.evaluate(() => {
+    bleMock.busyConnects = 2;
+  });
+  await connect(page);
+  expect(await page.evaluate(() => localStorage.getItem('ble.mock.choosers'))).toBe('1');
+  await expect(page.locator('#studio')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a new page resets an abandoned response on a retained physical BLE link', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await connect(page);
+  await page.evaluate(() => localStorage.setItem('ble.mock.abandoned', 'yes'));
+  await page.reload();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  expect(await page.evaluate(() => bleMock.sessionStarts)).toBe(1);
+  expect(await page.evaluate(() => localStorage.getItem('ble.mock.abandoned'))).toBeNull();
+  expect(await page.evaluate(() => bleMock.deck.revision)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('legacy protocol devices remain connectable without the new session reset', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await page.evaluate(() => {
+    bleMock.protocol = 1;
+  });
+  await connect(page);
+  expect(await page.evaluate(() => bleMock.sessionStarts || 0)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('an old interrupted download cannot disconnect a replacement connection', async ({ page }) => {
+  const errors = await setup(page);
+  await connect(page);
+  const result = await page.evaluate(async () => {
+    bleMock.replyDelay = 80;
+    const old = badgeDevice.getStatus().catch((error) => error.message);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    badgeDevice.disconnect();
+    bleMock.replyDelay = 0;
+    await badgeDevice.reconnect();
+    await badgeDevice.pair(bleMock.password);
+    await old;
+    const status = await badgeDevice.getStatus();
+    return { connected: badgeDevice.device.gatt.connected, brightness: status.brightness };
+  });
+  expect(result).toEqual({ connected: true, brightness: 65 });
   expect(errors).toEqual([]);
 });

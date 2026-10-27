@@ -5,7 +5,7 @@ and upload it over Bluetooth. No account, native app, Wi-Fi setup, SD card or PS
 
 **[Open the companion editor](https://n0rule.github.io/LanyardBadge/)**
 
-The current firmware is 2.3.1. It targets the 4 MB ESP32 CYD2USB with ST7789 and
+The current firmware is 2.3.2. It targets the 4 MB ESP32 CYD2USB with ST7789 and
 XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 
 ## Use your badge
@@ -15,6 +15,7 @@ XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 2. Choose **Connect your badge** in a supported secure Web Bluetooth browser.
    A scanned QR supplies the pairing code; it is immediately removed from the URL.
    On a desktop, type the four-letter code shown below the badge’s QR.
+   The editor appears after connection; empty cards start with a neutral gray preview.
 3. Choose artwork, rotate, fit/crop, zoom and drag it into position. The preview
    and final upload share the same transformation. Upload the card, then wear it.
 4. Swipe the physical artwork screen to change cards; hold it to open the menu.
@@ -26,10 +27,17 @@ Chrome/Edge on supported desktop or Android configurations can use Web Bluetooth
 iOS Safari is unsupported. Linux needs a running Bluetooth daemon and a pairing
 agent. Device discovery and pairing are real browser/OS prompts, not simulated
 connection states. USB firmware installation needs desktop Web Serial.
+On Linux, pair the badge once in system Bluetooth settings before browser
+connection. “Forget editors” on the badge rotates its code while retaining the OS
+bond, so this initial system pairing does not need to be repeated for revocation.
 
 Calibration is optional under **Settings → Advanced**. Hold the physical BOOT
 button two seconds to reopen the editor QR, or six seconds for touch recovery.
 Revoke editor access under Advanced to replace a photographed/lost pairing key.
+Settings also offers a device dark/light theme, retained across restarts. Submenu
+arrows go back one level; the main menu's centered X returns to artwork. Release
+menus omit developer diagnostics and benchmark commands are compiled out unless
+`BADGE_DIAGNOSTICS=1` is explicitly enabled.
 Pair manually with the four-letter code on the connection screen. Remember badge
 is enabled by default; this browser then saves device access and tries to reconnect
 after refresh without another code. Disable it on a shared computer, or use

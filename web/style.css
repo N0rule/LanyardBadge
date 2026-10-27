@@ -6,10 +6,10 @@
 }
 :root {
   color-scheme: light;
-  --base: #edf1f4;
+  --base: #ffffff;
   --surface: #fff;
-  --panel: #f6f8fa;
-  --ink: #202934;
+  --panel: #f7f9fc;
+  --ink: #172433;
   --muted: #566372;
   --line: #ccd4dd;
   --accent: #2151dc;
@@ -41,9 +41,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 0 24px 12px;
+  margin: 0 0 20px;
   color: var(--muted);
 }
 .remembered-badge[hidden] {
@@ -241,21 +239,34 @@ legend {
   color: var(--muted);
 }
 .welcome {
-  max-width: 1440px;
+  max-width: 1000px;
   margin: auto;
-  padding: 56px 4vw 40px;
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 80px;
-  align-items: end;
+  padding: clamp(60px, 12vh, 140px) 24px 60px;
+  text-align: center;
+  min-height: calc(100dvh - 90px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
 }
 .welcome h1 {
-  font-size: clamp(36px, 5vw, 66px);
+  font-size: clamp(44px, 7vw, 78px);
   font-weight: 650;
   margin: 0 0 22px;
 }
 .welcome p {
   max-width: 48ch;
+  margin: 20px auto;
+}
+.landing-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 32px 0 24px;
+}
+.landing-actions button {
+  min-width: 180px;
+  padding: 14px 22px;
 }
 .welcome-guide {
   padding: 0 0 12px 24px;

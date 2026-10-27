@@ -31,20 +31,33 @@ bool SettingsStore::begin() {
         randomKey(value.pairingKey);
         return false;
     }
-    // Independent schema-3 key preserves the original blob for recovery.
-    if (prefs_.getBytesLength("settings3") == sizeof(Settings)) {
+    // Each schema retains its predecessor for recovery; never delete settings.
+    if (prefs_.getBytesLength("settings4") == sizeof(Settings)) {
         Settings saved;
+        prefs_.getBytes("settings4", &saved, sizeof(saved));
+        uint32_t crc = saved.crc;
+        saved.crc = 0;
+        if (saved.version == 4 && crc == checksum(&saved, sizeof(saved)) && validBase(saved) &&
+            validScreenTimeout(saved.screenTimeout) && saved.pairingKey[16] == 0 &&
+            strlen(saved.pairingKey) == 16 && saved.darkMode <= 1) {
+            saved.crc = crc;
+            value = saved;
+            return true;
+        }
+        Serial.println("Settings v4 invalid; trying preserved v3");
+    }
+    if (prefs_.getBytesLength("settings3") == sizeof(SettingsV3)) {
+        SettingsV3 saved;
         prefs_.getBytes("settings3", &saved, sizeof(saved));
         uint32_t crc = saved.crc;
         saved.crc = 0;
         if (saved.version == 3 && crc == checksum(&saved, sizeof(saved)) && validBase(saved) &&
             validScreenTimeout(saved.screenTimeout) && saved.pairingKey[16] == 0 &&
             strlen(saved.pairingKey) == 16) {
-            saved.crc = crc;
-            value = saved;
-            return true;
+            static_cast<SettingsV3 &>(value) = saved;
+            Serial.println("Migrated settings v3; original retained");
+            return save();
         }
-        Serial.println("Settings v3 invalid; trying preserved v2");
     }
     if (prefs_.getBytesLength("settings") == sizeof(SettingsV2)) {
         SettingsV2 saved;
@@ -61,10 +74,10 @@ bool SettingsStore::begin() {
     return save();
 }
 bool SettingsStore::save() {
-    value.version = 3;
+    value.version = 4;
     value.crc = 0;
     value.crc = checksum(&value, sizeof(value));
-    return prefs_.putBytes("settings3", &value, sizeof(value)) == sizeof(value);
+    return prefs_.putBytes("settings4", &value, sizeof(value)) == sizeof(value);
 }
 bool SettingsStore::revokePairing() {
     Settings before = value;

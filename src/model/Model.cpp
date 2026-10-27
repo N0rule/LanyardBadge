@@ -197,10 +197,5 @@ bool deckFromJson(JsonVariantConst v, Deck &d, String &err) {
 }
 void defaults(Deck &d) {
     d = Deck{};
-    d.count = 1;
-    strcpy(d.cards[0].id, "00000001");
-    strcpy(d.cards[0].title, "My first card");
-    strcpy(d.cards[0].mode, "artwork");
-    d.cards[0].background = 0;
 }
 } // namespace badge
