@@ -458,6 +458,11 @@
     lock(true);
     try {
       if (file.size > 30 * 1024 * 1024) throw Error('Choose artwork smaller than 30 MB.');
+      const signature = new Uint8Array(await file.slice(0, 6).arrayBuffer());
+      if (file.type === 'image/gif' || /^GIF8[79]a$/.test(String.fromCharCode(...signature)))
+        throw Error(
+          'Animated cards are not supported on the badge yet. Choose PNG, JPEG, WebP or BMP.',
+        );
       // Decode once; every edit redraws from the original, with no cumulative resampling.
       const image = await createImageBitmap(file);
       if (image.width * image.height > 50_000_000) {

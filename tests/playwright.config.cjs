@@ -1,7 +1,7 @@
 const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: '.',
-  testMatch: 'editor.spec.cjs',
+  testMatch: ['editor.spec.cjs', 'gif.spec.cjs'],
   fullyParallel: true,
   timeout: 30000,
   use: { headless: true },

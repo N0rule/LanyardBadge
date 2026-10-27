@@ -11,6 +11,16 @@
       dh = ih * scale;
     return { x: ((w - dw) * (x + 100)) / 200, y: ((h - dh) * (y + 100)) / 200, w: dw, h: dh };
   }
+  function rgb565(r, g, b) {
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+  }
+  function encodePixels(rgba) {
+    if (rgba.length !== W * H * 4) throw Error('A 240 × 320 image is required');
+    const pixels = new Uint16Array(W * H);
+    for (let i = 0; i < pixels.length; i++)
+      pixels[i] = rgb565(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]);
+    return pixels;
+  }
   function encodeBMP(rgba) {
     if (rgba.length !== W * H * 4) throw Error('A 240 × 320 image is required');
     const buffer = new ArrayBuffer(BMP_SIZE),
@@ -32,7 +42,7 @@
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
         const i = (y * W + x) * 4,
-          px = ((rgba[i] >> 3) << 11) | ((rgba[i + 1] >> 2) << 5) | (rgba[i + 2] >> 3);
+          px = rgb565(rgba[i], rgba[i + 1], rgba[i + 2]);
         v.setUint16(66 + ((H - 1 - y) * W + x) * 2, px, true);
       }
     return buffer;
@@ -77,5 +87,5 @@
       if (!t.text || t.text.length > 96 || /[^\x20-\x7e\n]/.test(t.text))
         throw Error('Text elements need 1–96 supported characters');
   }
-  globalThis.BadgeCodec = { cropRect, encodeBMP, decodeBMP, validateCard };
+  globalThis.BadgeCodec = { cropRect, encodeBMP, decodeBMP, encodePixels, validateCard };
 })();

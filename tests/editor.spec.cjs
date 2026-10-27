@@ -587,3 +587,21 @@ test('a stale connected handle lost during encrypted read retries the same grant
   await expect(page.locator('#studio')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('GIF files cannot silently replace artwork with only their first frame', async ({ page }) => {
+  const errors = await setup(page);
+  await image(page);
+  const before = await page.locator('#preview').evaluate((c) => c.toDataURL());
+  const buffer = fs.readFileSync(path.join(__dirname, 'fixtures/disposal.gif'));
+  for (const [name, mimeType] of [
+    ['animation.gif', 'image/gif'],
+    ['renamed.png', 'image/png'],
+  ]) {
+    await page.locator('#image-file').setInputFiles({ name, mimeType, buffer });
+    await expect(page.locator('#image-file')).toHaveValue('');
+    await expect(page.locator('#toast')).toContainText('Animated cards are not supported');
+    expect(await page.locator('#preview').evaluate((c) => c.toDataURL())).toBe(before);
+    await expect(page.locator('#save-card')).toBeEnabled();
+  }
+  expect(errors).toEqual([]);
+});

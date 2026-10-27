@@ -376,3 +376,15 @@ in the ignored `test-results/` directory, including `final-hardware-benchmarks.j
 and `released-6e94619-status.log`. The final backup and subsequent boot are recorded
 in `released-6e94619-backup.log` and `released-6e94619-after-backup-status.log`.
 Credentials are not printed in these reports.
+
+## GIF preparation foundation after 2.3.3
+
+Thirty Chromium tests pass (27 editor/transport, three GIF preparation).
+The native ImageDecoder test uses an actual local animated GIF, a retained
+RGBA oracle and shared artwork transforms; it checks exact reconstructed RGB565
+pixels, frame delays, repetition and disposal. Cancellation and unsupported-browser
+behavior also pass. The release editor rejects GIF signatures (including renamed
+files) without replacing existing artwork with a single frame. Host tests check GIF header/dimension limits and exact parity
+between the new top-down pixel export and the existing BMP exporter. Static BMP
+output is unchanged. No C++ or hardware settings changed for this foundation.
+See `docs/GIF.md` for the implemented boundary and remaining playback work.

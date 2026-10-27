@@ -141,3 +141,8 @@ The card editor keeps artwork at the center: choose a file, adjust it directly o
 the badge preview, then upload. Rotation and precise crop controls appear after
 choosing artwork. Uploads use a dedicated progress screen in the badge's saved
 light or dark theme, and only report completion after the card is safely saved.
+
+GIF preparation is under development: real browser frame decoding, shared artwork
+transforms and changed-region export have automated coverage. GIF selection and
+badge playback remain unavailable until the device pipeline is validated. See
+[GIF development status](docs/GIF.md).
