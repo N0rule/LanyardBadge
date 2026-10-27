@@ -47,6 +47,10 @@
         </p>
       </div>
     </section>
+    <div id="remembered-badge" class="remembered-badge" hidden>
+      <span id="remembered-label"></span>
+      <button id="forget-badge" class="text-button" type="button">Forget badge</button>
+    </div>
     <main class="studio" id="studio">
       <aside class="gallery">
         <div class="section-head">
@@ -172,18 +176,23 @@
     <dialog id="pair-dialog">
       <form id="pair-form">
         <h2>Connect your badge</h2>
-        <p>
-          Scan the QR on your badge, or enter its pairing key here. The key stays in this tab until
-          you close it.
-        </p>
+        <p>Enter the four-letter code on your badge’s connection screen, or scan its QR code.</p>
         <label
-          >Pairing key<input
+          >Badge code<input
             id="pair-password"
-            type="password"
+            type="text"
             required
-            maxlength="16"
+            minlength="4"
+            maxlength="4"
+            pattern="[A-Za-z]{4}"
+            autocapitalize="characters"
+            spellcheck="false"
             autocomplete="off"
         /></label>
+        <label class="remember-choice"
+          ><input id="remember-badge" type="checkbox" checked /> Remember this badge in this
+          browser</label
+        >
         <p id="pair-error" role="alert"></p>
         <div class="dialog-actions">
           <button id="pair-cancel" type="button">Cancel</button

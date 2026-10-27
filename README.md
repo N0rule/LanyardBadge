@@ -5,7 +5,7 @@ and upload it over Bluetooth. No account, native app, Wi-Fi setup, SD card or PS
 
 **[Open the companion editor](https://n0rule.github.io/LanyardBadge/)**
 
-The current firmware is 2.3.0. It targets the 4 MB ESP32 CYD2USB with ST7789 and
+The current firmware is 2.3.1. It targets the 4 MB ESP32 CYD2USB with ST7789 and
 XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 
 ## Use your badge
@@ -13,8 +13,8 @@ XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 1. New blank boards show a centered QR without requiring calibration. Scan it or
    open the editor manually. The badge advertises its device-specific BLE service.
 2. Choose **Connect your badge** in a supported secure Web Bluetooth browser.
-   A scanned QR supplies the ownership key; it is immediately removed from the URL.
-   On a desktop, you can also type the key shown below the badge’s QR.
+   A scanned QR supplies the pairing code; it is immediately removed from the URL.
+   On a desktop, type the four-letter code shown below the badge’s QR.
 3. Choose artwork, rotate, fit/crop, zoom and drag it into position. The preview
    and final upload share the same transformation. Upload the card, then wear it.
 4. Swipe the physical artwork screen to change cards; hold it to open the menu.
@@ -30,6 +30,11 @@ connection states. USB firmware installation needs desktop Web Serial.
 Calibration is optional under **Settings → Advanced**. Hold the physical BOOT
 button two seconds to reopen the editor QR, or six seconds for touch recovery.
 Revoke editor access under Advanced to replace a photographed/lost pairing key.
+Pair manually with the four-letter code on the connection screen. Remember badge
+is enabled by default; this browser then saves device access and tries to reconnect
+after refresh without another code. Disable it on a shared computer, or use
+**Forget badge** to remove saved browser access. Browser permission, the same site
+origin and a working Bluetooth service are required for automatic reconnect.
 Older profile/custom cards remain readable and displayable; new creation is
 artwork-only. The editor labels legacy cards and replaces their layout only when
 you explicitly choose artwork and upload.

@@ -38,14 +38,18 @@ bool Bluetooth::begin() {
     server_->start();
     auto *advertising = NimBLEDevice::getAdvertising();
     advertising->enableScanResponse(true);
-    advertising->addServiceUUID(service->getUUID());
-    if (!advertising->setName(name_.c_str()))
+    // Put the full readable name in the primary packet. Some browser/adapter
+    // combinations miss names supplied only in a scan response.
+    NimBLEAdvertisementData primary, scan;
+    if (!primary.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP) ||
+        !primary.setName(name_.c_str()) || !scan.setCompleteServices(service->getUUID()) ||
+        !advertising->setAdvertisementData(primary) || !advertising->setScanResponseData(scan))
         return false;
     return advertising->start();
 }
 String Bluetooth::pairingUrl() const {
     return String("https://n0rule.github.io/LanyardBadge/#badge=") + name_ +
-           "&key=" + settings_.value.pairingKey;
+           "&code=" + settings_.pairingCode();
 }
 void Bluetooth::revoke(bool forgetBonds) {
     api_.revokeSession();
@@ -329,8 +333,17 @@ void Bluetooth::tick() {
         reset();
         return;
     }
-    if (!connected_)
+    if (!connected_) {
+        // Recover advertising after controller/host resets as well as ordinary
+        // disconnects. Bounded retries avoid a hot loop on initialization errors.
+        static uint32_t checked = 0;
+        if (millis() - checked >= 2000) {
+            checked = millis();
+            if (!advertising() && !NimBLEDevice::getAdvertising()->start())
+                Serial.println("BLE: advertising retry failed");
+        }
         return;
+    }
     Packet p;
     if (xQueueReceive(queue_, &p, 0) == pdTRUE && p.generation == gen)
         packet(p.data, p.size);

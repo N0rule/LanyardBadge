@@ -237,7 +237,7 @@ test('revoked QR key offers manual re-pair without losing unsaved artwork', asyn
   await page.locator('#connect').click();
   await expect(page.locator('#pair-dialog')).toBeVisible();
   await expect(page.locator('#pair-error')).toHaveText('Wrong pairing key');
-  await page.locator('#pair-password').fill('qrstuvwxyz234567');
+  await page.locator('#pair-password').fill('abcd');
   await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
   await expect(page.locator('#connection')).toHaveText('Connected');
   await expect(page.locator('#title')).toHaveValue('Keep my artwork');
@@ -261,5 +261,100 @@ test('expired API session disconnects clearly and keeps artwork for reconnect', 
   await page.locator('#connect').click();
   await expect(page.locator('#connection')).toHaveText('Connected');
   expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('four-letter pairing remembers the badge and reconnects after refresh without a chooser', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await page.goto('https://badge.test/LanyardBadge/');
+  await page.locator('#connect').click();
+  await expect(page.locator('#pair-dialog')).toBeVisible();
+  await page.locator('#pair-password').fill('abcd');
+  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  const remembered = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('lanyardbadge.connection')),
+  );
+  expect(remembered.id).toBe('mock-badge-id');
+  expect(remembered.credential).toHaveLength(16);
+  const options = await page.evaluate(() => bleMock.discoveryOptions);
+  expect(options.filters).toEqual([{ services: [BadgeService()] }, { namePrefix: 'Badge-' }]);
+  expect(options.optionalServices).toEqual([BadgeService()]);
+  await page.reload();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#pair-dialog')).not.toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('ble.mock.choosers'))).toBe('1');
+  await image(page);
+  await page.locator('#title').fill('Keep this draft');
+  await page.locator('#forget-badge').click();
+  await expect(page.locator('#connection')).toHaveText('Disconnected');
+  await expect(page.locator('#title')).toHaveValue('Keep this draft');
+  expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).toBeNull();
+  expect(errors).toEqual([]);
+});
+function BadgeService() {
+  return 'f40d1000-6f15-4d56-b6d4-17c92e648a10';
+}
+
+test('remembering is optional and unavailable remembered devices never look connected', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await page.goto('https://badge.test/LanyardBadge/');
+  await page.locator('#connect').click();
+  await page.locator('#remember-badge').uncheck();
+  await page.locator('#pair-password').fill('ABCD');
+  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).toBeNull();
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'lanyardbadge.connection',
+      JSON.stringify({ id: 'removed-device', name: 'Badge-Test', credential: 'abcdefghijklmnop' }),
+    );
+  });
+  await page.reload();
+  await expect(page.locator('#connection')).toHaveText('Disconnected');
+  await expect(page.locator('#connect')).toHaveText('Reconnect badge');
+  await expect(page.locator('#pair-dialog')).not.toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a remembered credential invalidated by reflashing offers a new short code', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await connect(page);
+  await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('lanyardbadge.connection'));
+    saved.credential = 'qrstuvwxyz234567';
+    localStorage.setItem('lanyardbadge.connection', JSON.stringify(saved));
+  });
+  await page.reload();
+  await expect(page.locator('#pair-dialog')).toBeVisible();
+  await expect(page.locator('#pair-error')).toHaveText('Wrong pairing key');
+  expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).toBeNull();
+  await page.locator('#pair-password').fill('ABCD');
+  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  expect(errors).toEqual([]);
+});
+
+test('failed automatic reconnect stays disconnected and keeps remembered access for retry', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await connect(page);
+  await page.evaluate(() => localStorage.setItem('ble.mock.failConnect', 'yes'));
+  await page.reload();
+  await expect(page.locator('#connection')).toHaveText('Disconnected');
+  await expect(page.locator('#toast')).toContainText('Bluetooth could not establish a connection');
+  expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).not.toBeNull();
+  await page.evaluate(() => localStorage.removeItem('ble.mock.failConnect'));
+  await page.locator('#connect').click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#pair-dialog')).not.toBeVisible();
   expect(errors).toEqual([]);
 });

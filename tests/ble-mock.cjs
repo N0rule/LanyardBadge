@@ -32,6 +32,7 @@ function installMock() {
     uploads: [],
     failCommit: false,
     password: 'abcdefghijklmnop',
+    shortCode: 'ABCD',
     mtu: 23,
     header: [],
     data: [],
@@ -42,8 +43,15 @@ function installMock() {
     reply,
     replyAt = 0;
   const tx = new EventTarget();
-  tx.startNotifications = async () => tx;
-  tx.readValue = async () => new DataView(Uint8Array.of(1, mock.mtu & 255, mock.mtu >> 8).buffer);
+  let encryptedRead = false;
+  tx.startNotifications = async () => {
+    if (!encryptedRead) throw Error('Complete encrypted read before subscribing');
+    return tx;
+  };
+  tx.readValue = async () => {
+    encryptedRead = true;
+    return new DataView(Uint8Array.of(1, mock.mtu & 255, mock.mtu >> 8).buffer);
+  };
   const emit = (op, at, data = []) => {
     const b = new Uint8Array(7 + data.length),
       v = new DataView(b.buffer);
@@ -80,13 +88,15 @@ function installMock() {
     const body = request.length
       ? JSON.parse(new TextDecoder().decode(new Uint8Array(mock.data)))
       : {};
-    if (request.path === '/api/pair')
+    if (request.path === '/api/pair') {
+      const matches = body.password === mock.password || body.password === mock.shortCode;
       return answer(
-        body.password === mock.password ? 200 : 401,
-        body.password === mock.password
-          ? { token: 'a'.repeat(64) }
+        matches ? 200 : 401,
+        matches
+          ? { token: 'a'.repeat(64), credential: mock.password }
           : { error: 'Wrong pairing key' },
       );
+    }
     if (request.path === '/api/cards' && request.method === 'GET') return answer(200, mock.deck);
     if (request.path === '/api/status') return answer(200, mock.status);
     if (request.path === '/api/cards') {
@@ -153,10 +163,15 @@ function installMock() {
     },
   };
   const device = new EventTarget();
+  device.id = 'mock-badge-id';
+  device.name = 'Badge-Test';
   device.gatt = {
     connected: false,
     async connect() {
+      if (localStorage.getItem('ble.mock.failConnect'))
+        throw new DOMException('Adapter unavailable', 'NetworkError');
       this.connected = true;
+      encryptedRead = false;
       return {
         getPrimaryService: async () => ({
           getCharacteristic: async (uuid) => (uuid.includes('1001-') ? rx : tx),
@@ -171,7 +186,18 @@ function installMock() {
     },
   };
   Object.defineProperty(navigator, 'bluetooth', {
-    value: { requestDevice: async () => device },
+    value: {
+      requestDevice: async (options) => {
+        mock.discoveryOptions = options;
+        localStorage.setItem('ble.mock.granted', 'yes');
+        localStorage.setItem(
+          'ble.mock.choosers',
+          Number(localStorage.getItem('ble.mock.choosers') || 0) + 1,
+        );
+        return device;
+      },
+      getDevices: async () => (localStorage.getItem('ble.mock.granted') ? [device] : []),
+    },
     configurable: true,
   });
 }

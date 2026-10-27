@@ -29,5 +29,10 @@ class SettingsStore {
     bool begin();
     bool save();
     bool revokePairing();
+    String pairingCode() const {
+        char code[5];
+        shortPairingCode(value.pairingKey, code);
+        return code;
+    }
 };
 } // namespace badge

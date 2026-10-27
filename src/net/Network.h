@@ -27,6 +27,7 @@ class Network {
     std::function<void(unsigned)> select;
     std::function<void(int)> progress;
     std::function<void(JsonDocument &)> deviceStatus;
+    std::function<bool()> pairingCodeAllowed;
     Network(SettingsStore &s, Assets &a) : settings_(s), assets_(a) {}
     bool validToken(const String &) const;
     void revokeSession();

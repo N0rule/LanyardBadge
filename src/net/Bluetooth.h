@@ -49,6 +49,7 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     void tick();
     void revoke(bool forgetBonds = false);
     bool connected() const { return connected_; }
+    bool advertising() const { return server_ && NimBLEDevice::getAdvertising()->isAdvertising(); }
     float initialIntervalMs() const { return initialInterval_ * 1.25f; }
     float intervalMs() const;
     String name() const { return name_; }

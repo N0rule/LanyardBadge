@@ -32,16 +32,44 @@
     frame = 0,
     drag = null;
   let key = '',
-    intendedName = '';
+    intendedName = '',
+    connectionPending = false,
+    remembered = null;
+  const rememberedKey = 'lanyardbadge.connection';
+  try {
+    const saved = JSON.parse(localStorage.getItem(rememberedKey));
+    if (
+      saved &&
+      typeof saved.id === 'string' &&
+      typeof saved.name === 'string' &&
+      /^[a-z2-9]{16}$/.test(saved.credential)
+    )
+      remembered = saved;
+  } catch {}
   const fragment = new URLSearchParams(location.hash.slice(1));
-  key = fragment.get('key') || '';
+  key = fragment.get('key') || fragment.get('code') || '';
   intendedName = fragment.get('badge') || '';
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   const card = () => deck.cards[selected];
   function connectionMessage(error) {
-    return error.name === 'NetworkError'
-      ? 'Could not connect. Check Bluetooth and keep the badge nearby. If you revoked access, forget its old pairing in Bluetooth settings, then connect again.'
-      : error.message;
+    if (error.name === 'NetworkError')
+      return 'Bluetooth could not establish a connection. Keep the badge nearby, close other connected tabs, and try again. On Linux, also check that the Bluetooth service is running.';
+    if (error.name === 'NotFoundError')
+      return 'No badge selected. Keep its connection screen open and scan again.';
+    return error.message;
+  }
+  function showRemembered() {
+    $('remembered-badge').hidden = !remembered;
+    $('remembered-label').textContent = remembered
+      ? `This browser remembers ${remembered.name}.`
+      : '';
+  }
+  function forgetRemembered() {
+    remembered = null;
+    try {
+      localStorage.removeItem(rememberedKey);
+    } catch {}
+    showRemembered();
   }
   function toast(message) {
     clearTimeout(toastTimer);
@@ -257,8 +285,8 @@
     }
   });
   async function finishPair(password) {
-    await transport.pair(password);
-    key = password;
+    const paired = await transport.pair(password);
+    key = paired.credential || password;
     // Set connected only after real pairing and successful reads.
     connected = true;
     try {
@@ -268,6 +296,17 @@
       throw e;
     }
     transport.change('connected');
+    if ($('remember-badge').checked && transport.device?.id && /^[a-z2-9]{16}$/.test(key)) {
+      remembered = {
+        id: transport.device.id,
+        name: transport.device.name || 'your badge',
+        credential: key,
+      };
+      try {
+        localStorage.setItem(rememberedKey, JSON.stringify(remembered));
+      } catch {}
+      showRemembered();
+    } else if (remembered?.id === transport.device?.id) forgetRemembered();
     $('connect').textContent = 'Disconnect';
     $('welcome').hidden = true;
     $('device-open').disabled = false;
@@ -275,30 +314,48 @@
     $('gallery-hint').textContent = 'Your collection stays on the badge.';
     $('pair-dialog').close();
   }
-  $('connect').onclick = async () => {
+  async function connectBadge(automatic = false) {
+    if (connectionPending) return;
     if (connected) {
       transport.disconnect();
       return;
     }
+    connectionPending = true;
+    $('connect').disabled = true;
     try {
       if (transport.device) await transport.reconnect();
-      else await transport.connect(intendedName);
+      else if (!automatic) await transport.connect(intendedName);
+      else return;
+      if (!key && remembered?.id === transport.device?.id) key = remembered.credential;
       if (key) await finishPair(key);
       else $('pair-dialog').showModal();
     } catch (e) {
       if (e.deviceResponse && transport.state === 'pairing') {
         key = '';
+        if (remembered?.id === transport.device?.id) forgetRemembered();
         $('pair-error').textContent = connectionMessage(e);
         if (!$('pair-dialog').open) $('pair-dialog').showModal();
       } else toast(connectionMessage(e));
+    } finally {
+      connectionPending = false;
+      $('connect').disabled = false;
     }
+  }
+  $('connect').onclick = () => connectBadge();
+  $('forget-badge').onclick = () => {
+    transport.disconnect();
+    transport.device = null;
+    key = intendedName = '';
+    forgetRemembered();
+    $('connect').textContent = 'Connect your badge';
+    toast('Badge forgotten in this browser. Your artwork edits are kept.');
   };
   $('pair-form').onsubmit = async (e) => {
     e.preventDefault();
     $('pair-error').textContent = '';
     try {
       if (!transport.device?.gatt.connected) await transport.reconnect();
-      await finishPair($('pair-password').value);
+      await finishPair($('pair-password').value.trim().toUpperCase());
       $('pair-password').value = '';
     } catch (e) {
       $('pair-error').textContent = connectionMessage(e);
@@ -704,4 +761,22 @@
   };
   edit();
   lock(false);
+  showRemembered();
+  async function restoreConnection() {
+    if (!remembered || (intendedName && intendedName !== remembered.name)) return;
+    try {
+      if (await transport.restore(remembered.id)) {
+        if (!key) key = remembered.credential;
+        $('connect').textContent = 'Reconnect badge';
+        await connectBadge(true);
+      } else if (!key) {
+        // getDevices is unavailable or browser permission was removed. Keep
+        // the remembered credential for the next explicitly selected badge.
+        $('connect').textContent = 'Reconnect badge';
+      }
+    } catch {
+      $('connect').textContent = 'Reconnect badge';
+    }
+  }
+  restoreConnection();
 })();

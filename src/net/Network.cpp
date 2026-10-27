@@ -69,13 +69,22 @@ void Network::pair() {
     }
     JsonDocument d;
     if (deserializeJson(d, body_) || !d["password"].is<const char *>()) {
-        error(400, "Enter the badge pairing password");
+        error(400, "Enter the four-letter code on your badge");
         return;
     }
-    if (!equalSecret(d["password"].as<String>(), settings_.value.pairingKey)) {
+    String password = d["password"].as<String>();
+    bool credential = equalSecret(password, settings_.value.pairingKey);
+    password.toUpperCase();
+    bool code = password.length() == 4 &&
+                equalSecret(password, settings_.pairingCode().c_str());
+    if (!credential && code && (!pairingCodeAllowed || !pairingCodeAllowed())) {
+        error(403, "Open Connect to editor on your badge, then enter its code");
+        return;
+    }
+    if (!credential && !code) {
         ++failures_;
         blockedAt_ = millis();
-        error(401, "Password does not match the badge");
+        error(401, "Code does not match the badge");
         return;
     }
     failures_ = 0;
@@ -85,6 +94,9 @@ void Network::pair() {
     opened_ = millis();
     JsonDocument out;
     out["token"] = token_;
+    // Only sent over authenticated encrypted GATT, never in diagnostics. A
+    // remembered browser uses this instead of repeatedly guessing a short code.
+    out["credential"] = settings_.value.pairingKey;
     json(200, out);
     if (paired)
         paired();
@@ -207,7 +219,7 @@ void Network::dispatch(const String &path) {
 }
 JsonDocument Network::statusDocument() const {
     JsonDocument d;
-    d["firmware"] = "2.3.0";
+    d["firmware"] = "2.3.1";
     d["arduino"] = ESP_ARDUINO_VERSION_STR;
     d["heap"] = ESP.getFreeHeap();
     d["minHeap"] = ESP.getMinFreeHeap();
@@ -248,7 +260,7 @@ void Network::status() {
     json(200, d);
 }
 String Network::summary() const {
-    return String("LanyardBadge 2.3.0\n240 x 320 / USB power\nFree heap: ") + ESP.getFreeHeap() +
+    return String("LanyardBadge 2.3.1\n240 x 320 / USB power\nFree heap: ") + ESP.getFreeHeap() +
            "\nStorage: " + assets_.used() / 1024 + " / " + assets_.total() / 1024 +
            " KiB\nCards: " + assets_.deck.count;
 }

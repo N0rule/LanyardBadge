@@ -3,7 +3,9 @@
 Service `f40d1000-6f15-4d56-b6d4-17c92e648a10`.
 Receive/write `f40d1001-6f15-4d56-b6d4-17c92e648a10`.
 Transmit/read/notify `f40d1002-6f15-4d56-b6d4-17c92e648a10`.
-Encrypted writes/reads; subscribe before sending requests. A read returns three
+Encrypted writes/reads; complete an encrypted read before subscribing, then
+subscribe before sending requests. This avoids racing security setup during a
+fast reconnect. A read returns three
 bytes: protocol version 1, then little-endian negotiated MTU (uint16).
 
 Every framed packet starts with operation (u8), request sequence (u16 LE), offset
@@ -38,7 +40,7 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 
 | Operation | Body / response |
 | --- | --- |
-| POST `/api/pair` | `{password: QR-key}` → `{token}` |
+| POST `/api/pair` | `{password: four-letter-code-or-remembered-credential}` → `{token,credential}` |
 | GET `/api/status` | Diagnostics, storage, settings, current selection, sleep/BLE state |
 | GET `/api/cards` | `{version:2,revision,cards:[...]}` |
 | POST `/api/cards` | Complete deck with matching revision → committed deck |
@@ -53,6 +55,13 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 Except pairing, operations require the session token in the request header. Asset
 uploads additionally require the authenticated connection. UUIDs and API paths
 are protocol identifiers, not HTTP requests against GitHub Pages.
+
+Short codes are case-insensitive letters and require the device's connection
+screen to be open. Strong remembered credentials and legacy QR keys can reconnect
+from the artwork screen. Five incorrect attempts trigger a 30-second delay;
+429 reports throttling and 403 requests opening the physical connection screen.
+The returned credential is secret: clients may remember it with explicit UI
+disclosure, but must not log it or include it in query strings.
 
 Cards retain the version-2 compatibility schema: id, title, mode, image, background,
 foreground, accent, name, description, url, texts and shapes. New editor cards use

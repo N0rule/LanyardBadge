@@ -1,6 +1,52 @@
 # Verification record — 2026-10-27
 
-## Released result
+## 2.3.1 connection and onboarding correction
+
+The owner reflashed from stock to test onboarding; this follow-up started with
+an unprovisioned device, revision 0, default settings and no saved artwork.
+The older artwork remains in the pre-work/release snapshots below. Before this
+update, another full 4 MB snapshot was read successfully after USB was reseated:
+`backups/before-short-code-4mb.bin`, SHA-256
+`7287d07b2f8884eee93ea3b2292280dbe28075659192a0a6655478cb0f577f6a`.
+
+- Firmware 2.3.1 compiled and flashed through the guarded PlatformIO uploader;
+  actual application image 1,667,760 bytes in the unchanged 2 MiB slot.
+- Serial boot confirmed advertising, unprovisioned onboarding and optional
+  calibration. Settings and revision 0 were retained.
+- **Fourteen simulated-GATT Chromium tests passed**, including short-code entry,
+  refresh reconnect without another chooser, optional remembering, forgetting
+  without losing edits, revoked credentials and unavailable-device recovery.
+- A real Chromium/BlueZ/ESP32 test with local frontend assets discovered the badge,
+  accepted its four-letter code, remembered its strong credential and reconnected
+  automatically after page refresh. Exactly one chooser was used; no second code
+  or pairing dialog appeared. Forget badge cleared saved browser access.
+- Real Bleak checks rejected short-code entry outside the connection screen (403),
+  rejected five wrong guesses (401), enforced a 30-second cooldown (429) across
+  disconnects, and accepted the lowercase correct code after cooldown. The strong
+  credential was returned privately; no collection/settings mutation was needed.
+- An immediate low-level notification subscription hit a GATT error before the
+  encrypted read. Completing that read first allowed the test to pass; browser
+  connection setup now follows that order and mocked GATT enforces it.
+- The complete BLE name is now in the primary advertisement. Discovery accepts
+  name or service independently and then validates GATT. A bounded watchdog
+  restarts missing advertising while disconnected.
+- The overflowing onboarding hint is explicitly split into two centered lines;
+  a larger four-letter code replaces the long footer key. New physical fit/scan
+  confirmation is still required; serial output does not verify clipping.
+
+Refreshing a page still closes its old GATT connection. The new page restores a
+previously permitted device using `getDevices()` and authenticates with the saved
+strong credential. Browsers without that capability offer explicit reconnect and
+reuse the credential after device selection. Permission revocation, a changed
+origin, or a stopped/crashing host Bluetooth service can still prevent connection.
+Earlier host logs contain BlueZ 5.87 SIGSEGV crashes; a later real BLE scan saw the
+badge at RSSI -44. These changes do not claim to fix the host daemon itself.
+
+Local evidence: `short-code-status.log`, `short-code-upload.log`,
+`short-code-browser.json`, `short-code-security.json`, `reconnect-host-tests.log`
+and `reconnect-browser-tests.log` under ignored `test-results/`.
+
+## 2.3.0 baseline release
 
 Implementation release: `6e94619e959a` on `rewrite/lanyardbadge-2`.
 [CI build, tests and Pages deployment passed](https://github.com/N0rule/LanyardBadge/actions/runs/40491527790).

@@ -174,7 +174,7 @@ void setup() {
     delay(100);
     serialLine.reserve(96);
     pinMode(board::boot, INPUT_PULLUP);
-    Serial.printf("\nLanyardBadge 2.3.0 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
+    Serial.printf("\nLanyardBadge 2.3.1 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
                   ESP.getChipModel(), ESP.getChipRevision(), unsigned(ESP.getFlashChipSize()),
                   unsigned(ESP.getPsramSize()), int(esp_reset_reason()));
     if (!settings.begin())
@@ -213,6 +213,7 @@ void setup() {
         ui.page(Page::Badge);
     };
     network.showBadge = [] { ui.page(Page::Badge); };
+    network.pairingCodeAllowed = [] { return ui.currentPage() == Page::Pairing; };
     network.paired = [] {
         if (settings.value.provisioned && ui.currentPage() == Page::Pairing)
             ui.page(Page::Badge);
@@ -228,6 +229,7 @@ void setup() {
         d["touchRawX"] = touch.raw().x;
         d["touchRawY"] = touch.raw().y;
         d["bluetoothConnected"] = bluetooth.connected();
+        d["bluetoothAdvertising"] = bluetooth.advertising();
         d["bluetoothName"] = bluetooth.name();
         d["bluetoothInitialIntervalMs"] = bluetooth.initialIntervalMs();
         d["bluetoothIntervalMs"] = bluetooth.intervalMs();

@@ -56,6 +56,23 @@
     static supported() {
       return !!globalThis.isSecureContext && !!globalThis.navigator?.bluetooth;
     }
+    useDevice(device) {
+      if (this.device === device) return;
+      if (this.device && this.disconnectListener)
+        this.device.removeEventListener('gattserverdisconnected', this.disconnectListener);
+      this.device = device;
+      this.disconnectListener = (event) => {
+        if (event.target === this.device) this.lost();
+      };
+      device.addEventListener('gattserverdisconnected', this.disconnectListener);
+    }
+    async restore(id) {
+      if (!BluetoothTransport.supported() || !navigator.bluetooth.getDevices) return false;
+      const device = (await navigator.bluetooth.getDevices()).find((d) => d.id === id);
+      if (!device) return false;
+      this.useDevice(device);
+      return true;
+    }
     async connect(name) {
       if (!BluetoothTransport.supported()) {
         this.change('unsupported');
@@ -65,12 +82,13 @@
       }
       try {
         this.change('searching');
-        this.device = await navigator.bluetooth.requestDevice({
-          filters: [name ? { name, services: [SERVICE] } : { services: [SERVICE] }],
+        const device = await navigator.bluetooth.requestDevice({
+          // Match either field. Name and service may arrive in separate radio
+          // packets, and a QR's old name must not hide a freshly flashed badge.
+          filters: [{ services: [SERVICE] }, name ? { name } : { namePrefix: 'Badge-' }],
+          optionalServices: [SERVICE],
         });
-        this.device.addEventListener('gattserverdisconnected', (event) => {
-          if (event.target === this.device) this.lost();
-        });
+        this.useDevice(device);
         await this.open();
       } catch (e) {
         this.disconnect();
@@ -88,11 +106,13 @@
       this.notifySource = this.tx;
       this.notifyListener = (e) => this.receive(e.target.value);
       this.tx.addEventListener('characteristicvaluechanged', this.notifyListener);
-      await this.tx.startNotifications();
+      // The encrypted read completes link security before writing the
+      // notification subscription. Fast reconnects can otherwise race bonding.
       const hello = await this.tx.readValue();
       if (hello.byteLength !== 3 || hello.getUint8(0) !== 1)
         throw Error('This badge needs a compatible firmware update.');
       this.packetBytes = Math.min(512, Math.max(20, hello.getUint16(1, true) - 3));
+      await this.tx.startNotifications();
       this.change('pairing');
     }
     async reconnect() {

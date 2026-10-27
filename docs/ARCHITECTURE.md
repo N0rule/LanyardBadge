@@ -100,13 +100,27 @@ timeout applies per active transfer; the whole card may take longer.
 The link uses encrypted GATT with NoInputNoOutput pairing and retained bonding
 keys. Link security starts on connect before encrypted reads. Physical revocation
 also deletes saved BLE bonds. This is combined with application-level
-ownership through a random per-device QR key. The key differs from old Wi-Fi
-credentials, never appears in server query parameters, and is removed from the
-browser URL immediately. It stays only in tab memory. A photographed QR remains
-usable until physical Settings → Advanced → Revoke editor access generates a new
-key and disconnects all editors. BLE encryption without MITM protection is not a
-substitute for this ownership check. Failed key attempts are rate-limited. Browser
+ownership through a random per-device credential. A four-letter code is derived
+from it without changing the settings schema. Manual code and QR-code pairing are
+accepted only while the physical connection screen is open. Five failed attempts
+block pairing for 30 seconds, including across disconnects (until reboot).
+The QR carries the short code in its fragment, which is removed immediately.
+Successful encrypted pairing returns the strong credential as well as a temporary
+session token. With Remember enabled, the browser saves its device ID and strong
+credential in localStorage; subsequent visits use `getDevices()` and reauthenticate
+without showing a chooser or requiring code entry where supported. Unavailable
+devices remain disconnected. Forget badge clears browser access data while
+preserving editor changes; physical Settings → Advanced → Revoke editor access
+rotates the credential/code, deletes bonds and disconnects editors. Legacy strong
+QR keys remain accepted for compatibility. A photographed short code remains
+usable while the connection screen is open until revoked. BLE encryption without
+MITM protection is not a substitute for the ownership check. Browser
 support depends on OS, Bluetooth daemon/agent and secure Web Bluetooth support.
+
+Advertising carries the complete device name in its primary packet and the
+service UUID in its scan response. Browser filters accept either identity field,
+then verify the real GATT service. A bounded firmware watchdog restarts missing
+advertising while disconnected; it does not reset an active connection.
 
 `web/transport.js` separates operations from GATT packets. `artwork.js` supplies
 one original-image transform for preview and RGB565 export: rotate, fit/fill

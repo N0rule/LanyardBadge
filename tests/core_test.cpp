@@ -57,6 +57,13 @@ void testCache() {
 }
 int main() {
     testCache();
+    char code[5], sameCode[5], otherCode[5];
+    shortPairingCode("abcdefghijklmnop", code);
+    shortPairingCode("abcdefghijklmnop", sameCode);
+    shortPairingCode("qrstuvwxyz234567", otherCode);
+    assert(strlen(code) == 4 && !strcmp(code, sameCode) && strcmp(code, otherCode));
+    for (unsigned i = 0; i < 4; ++i)
+        assert(strchr("ABCDEFGHJKLMNPQRSTUVWXYZ", code[i]));
     ScreenActivity screen;
     screen.wake(1000);
     screen.update(15999, 15, false, false);

@@ -78,6 +78,17 @@ inline uint32_t checksum(const void *data, size_t n) {
     }
     return ~crc;
 }
+// A readable code derived from the per-device credential. The credential itself
+// remains high entropy; code entry is physically gated and rate limited.
+inline void shortPairingCode(const char *credential, char out[5]) {
+    static constexpr char letters[] = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    uint32_t value = checksum(credential, strlen(credential));
+    for (unsigned i = 0; i < 4; ++i) {
+        out[i] = letters[value % (sizeof(letters) - 1)];
+        value /= sizeof(letters) - 1;
+    }
+    out[4] = 0;
+}
 inline bool validScreenTimeout(uint32_t seconds) {
     return seconds == 0 || seconds == 15 || seconds == 30 || seconds == 60 || seconds == 120 ||
            seconds == 300 || seconds == 600;

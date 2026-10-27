@@ -36,6 +36,39 @@
   --soft: #304465;
   --shadow: #0004;
 }
+.remembered-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px 12px;
+  color: var(--muted);
+}
+.remembered-badge[hidden] {
+  display: none;
+}
+.remembered-badge span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.remember-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.remember-choice input {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+#pair-password {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 24px;
+}
 * {
   box-sizing: border-box;
 }

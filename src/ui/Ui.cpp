@@ -493,7 +493,9 @@ void Ui::render() {
     if (page_ == Page::Pairing) {
         label(root, settings_.value.provisioned ? "Connect to editor" : "Welcome to\nLanyardBadge",
               16, 12, 208, 52, font(20), ink);
-        label(root, "Scan to connect and customize.", 8, 70, 224, 24, font(14), ink);
+        auto *hint = label(root, "Scan to connect\nand customize.", 12, 62, 216, 34, font(14), ink);
+        lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
         String url = pairingUrl ? pairingUrl() : String("");
         auto *quiet = lv_obj_create(root);
         plain(quiet);
@@ -507,8 +509,8 @@ void Ui::render() {
         lv_qrcode_set_dark_color(qr, lv_color_black());
         lv_qrcode_set_light_color(qr, lv_color_white());
         lv_qrcode_update(qr, url.c_str(), url.length());
-        String manualKey = String("Key: ") + settings_.value.pairingKey;
-        auto *key = label(root, manualKey.c_str(), 8, 298, 224, 22, font(14), ink);
+        String manualKey = String("Code: ") + settings_.pairingCode();
+        auto *key = label(root, manualKey.c_str(), 8, 294, 224, 26, font(20), ink);
         lv_obj_set_style_text_align(key, LV_TEXT_ALIGN_CENTER, 0);
         return;
     }
