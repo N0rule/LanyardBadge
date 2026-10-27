@@ -2,7 +2,14 @@
 
 ## 2.3.2 release UX and revocation recovery
 
-Implemented on `main`; CYD2USB firmware compiled and flashed through the guarded
+Released source: `c27dd4bbafda` on `main`.
+[Build, all 23 browser tests and Pages deployment passed](https://github.com/N0rule/LanyardBadge/actions/runs/40530166040).
+The live public site passed the two-action landing/hidden-editor check, white
+light-theme check, real four-letter pairing, three automatic page-refresh
+reconnections and browser Forget badge. One chooser and one code entry were used;
+the saved collection revision remained unchanged.
+
+CYD2USB firmware compiled and flashed through the guarded
 uploader. Local application image: 1,668,128 bytes; static RAM: 73,720 bytes.
 
 - Disconnected website: landing page with Connect and Install firmware. Editor
@@ -65,6 +72,8 @@ Local evidence is under ignored `test-results/`: `release-ux-host.log`,
 `release-ux-native-browser.log`, `release-ux-after-revoke.log` and
 `short-code-browser.json`. The final linked-revocation evidence is in
 `release-ux-revoke-trace.log` and `release-ux-revoke-linked.json`.
+The deployed-site check is in `release-ux-public-browser.log` and
+`short-code-browser-public.json`.
 Physical touch latency, tearing, phone acceptance and
 browser USB flashing retain the limitations listed in earlier records below.
 
