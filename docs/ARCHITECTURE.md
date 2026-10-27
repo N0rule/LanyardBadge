@@ -1,95 +1,139 @@
-# LanyardBadge 2.0 architecture
+# LanyardBadge artwork architecture
 
-## Decisions
+## Hardware and display ownership
 
-Classic ESP32, 4 MB flash, no PSRAM assumed. Arduino-ESP32 3.3.12 on PlatformIO
-espressif32 8.0.0; LovyanGFX 1.2.7; LVGL 9.2.2; XPT2046 v1.4; ArduinoJson 7.4.2.
-Dependencies are pinned. Original code remains in Git and is excluded from the
-standard src/ build. Migration branch: rewrite/lanyardbadge-2.
+Classic ESP32-D0WD-V3, 4 MB flash, no PSRAM. Portrait 240 × 320, rotation 0,
+USB down. Libraries remain pinned in `platformio.ini`; no new firmware library.
+LovyanGFX owns SPI2, XPT2046 owns SPI3 on the original pins. The ST7789 bus stays
+at the proven 40 MHz. There is no TE input in the verified board wiring. Software
+buffering cannot guarantee tear-free output without controller synchronization.
+No unverified GPIO is driven to obtain TE; physical tearing assessment remains
+necessary.
 
-LovyanGFX owns SPI2 (HSPI) for the ST7789. The XPT2046 library owns SPI3 (VSPI),
-using the original non-default touch pins. There is no SD support: standard CYD
-SD wiring would compete for SPI3 with different pins. The LVGL pool is reserved
-once from internal heap at startup to avoid the ESP32 static DRAM linker limit.
-Unused LVGL widgets and themes are disabled; a small component style set covers
-the badge and menu. LVGL uses one 240 x 32 x 2 byte partial buffer (15,360
-bytes), a fixed 48 KiB internal allocator, RGB565 software drawing, and
-synchronous SPI flushes. Synchronous completion makes buffer ownership explicit;
-DMA is configured on the bus but overlapping flush/render operations are
-deliberately unnecessary. No full-screen framebuffer, GPU, Bluetooth or
-additional application tasks in normal operation. The explicitly requested
-serial selftest starts one temporary TCP client task; it does not access UI or
-storage directly. LV_KCONFIG_IGNORE keeps the Arduino build independent of
-ESP-IDF's LVGL Kconfig and avoids ARM-only assembly pulling ESP-IDF headers into
-an Xtensa build.
+One aligned 15,360-byte stripe buffer serves both rendering paths. Full-screen
+artwork streams ten 32-row stripes from validated RGB565 BMPs, reversing each
+bottom-up stripe in place. It avoids LVGL's repeated per-row decoder work and
+filesystem allocations. No full-screen framebuffer or extra sprite is allocated.
+The loop polls touch between stripes. A whole artwork transition remains a
+bounded synchronous operation; BLE acknowledgements and menu input wait until
+that transition finishes. Full-screen transitions therefore still have a visible
+scanout possibility, documented rather than described as tear-free.
 
-LVGL's BMP decoder reads a row at a time. A 4 KiB aligned read cache per open
-image reduces the backwards seeks required by bottom-up BMP storage. Browsers
-decode JPEG/PNG/WebP, resize/crop to 240 x 320 and encode a 16-bit RGB565 BMP
-with explicit bit masks. This costs 153,666 bytes per background but bounds
-decoder RAM and latency. JPEG offers more capacity but requires an additional
-streaming decoder; PNG requires more work memory. Neither is needed on-device
-for the first release. Text, QR codes and shapes remain editable card data,
-separate from backgrounds.
+LVGL draws menus, calibration, onboarding and upload overlays using its existing
+48 KiB allocator. The direct artwork path disables LVGL invalidation and skips
+its handler until ownership returns to LVGL. Menu entry rebuilds once, invalidates
+the screen, and resumes LVGL. Display/slideshow settings update existing button
+labels in place, retaining scroll position and reducing partial redraws. Upload
+percentages update only when their integer value changes. Static artwork has no
+continuous redraw or animation. SPI transfers remain synchronous: measurements
+support removing decoder overhead before adding DMA buffer ownership complexity.
 
-## Flash
+## Inactivity and touch
 
-| Region              | Offset   | Size      |
-| ------------------- | -------- | --------- |
-| NVS                 | 0x9000   | 24 KiB    |
-| PHY                 | 0xf000   | 4 KiB     |
-| Factory application | 0x10000  | 2 MiB     |
-| LittleFS            | 0x210000 | 1,984 KiB |
+`ScreenActivity` is a portable, tested state machine with wrap-safe millisecond
+arithmetic. Timeout values are 0/15/30/60/120/300/600 seconds (0 means Never), with
+120 seconds as the new default. Sleep writes physical PWM zero without changing
+saved brightness. LVGL stops rendering; raw resistive pressure polling continues.
+The first stable waking press is consumed until release, independently of whether
+calibration is saved. Slideshow timing restarts when artwork becomes eligible
+again. Uploads and calibration keep the screen awake.
 
-Bootloader and partition table occupy the preceding reserved space. No OTA
-partition. Web assets are gzip-compressed in application flash, so uploading
-firmware also updates the editor without overwriting the card filesystem. Ten
-card slots leave room for an uploaded replacement and filesystem metadata. NVS
-stores versioned configuration and generated local setup credentials. LittleFS
-stores two generations of card metadata and immutable image files. Uploads
-become visible only after full length/header validation and rename. No automatic
-format on a mount failure; first setup explicitly provisions storage.
+Factory mapping uses the coefficients retained from the supplied board's prior
+four-corner calibration. It is usable even with `valid=false`; that flag describes
+user calibration, not permission to use touch. Calibration is optional under
+Settings → Advanced. BOOT held two seconds opens the QR, six seconds opens touch
+recovery; no power-loss reset or flash erase is involved.
 
-## Boundaries
+## Storage and migration
 
-- hardware/: display, backlight, raw touch and portrait coordinate mapping.
-- model/: bounded card data and portable validation/math.
-- storage/: NVS, manifest transactions, immutable image upload and recovery.
-- ui/: LVGL screens, calibration, gestures, gallery and diagnostics.
-- net/: time-limited WPA2 setup AP, station reconnect and authenticated HTTP
-  API.
-- web/: self-contained responsive card editor; no CDN or runtime network
-  dependency.
-- scripts/: reproducible asset embedding and host/device validation utilities.
+| Region | Offset | Size |
+| --- | --- | --- |
+| NVS | 0x9000 | 24 KiB |
+| PHY | 0xf000 | 4 KiB |
+| Application | 0x10000 | 2 MiB |
+| LittleFS | 0x210000 | 1,984 KiB |
 
-## Visual direction
+This preserves the live 2.1.0 layout. The starting source's larger application
+partition would have overwritten stored artwork. Removing Wi-Fi, HTTP, embedded
+web assets and bundled sample inflation lets BLE firmware fit the existing slot.
+Saved Wi-Fi credentials remain in the original settings for recovery; no API
+exposes them. Wi-Fi editing is no longer offered. Older single-sketch or 2.5 MiB
+layouts need a backup and explicit offline migration, not this update manifest.
 
-The badge is the focal object, presented at its physical 3:4 proportions. Editor
-palette: frost #F3F6FC, white #FFFFFF, slate #23324D, blue #3659D9, lilac
-#D9CEFF, muted slate #64728B. Native badge uses lilac, blue and slate. System
-sans for editor controls; local Montserrat for canvas and badge text. Type scale
-14 / 20 / 28, with a strong name and quiet supporting copy.
+Schema 3 uses a separate CRC-checked NVS key `settings3`, migrates the validated
+original `settings` blob without deleting it, and adds timeout, provisioning and
+a device-specific pairing key. Normal selection/setting changes coalesce for
+1.5 seconds; restart flushes pending writes. Provisioning also derives from a
+valid manifest and an available image at boot, so interrupted NVS writes cannot
+strand a successfully saved first card. Corrupt settings fall back to retained
+v2 or safe defaults.
 
-Desktop layout: gallery | portrait preview | editing controls. Left-aligned
-controls; the portrait alone is centered. On a phone these become a single
-column with the preview before its controls. Storage and Wi-Fi are in device
-settings, never on the badge's main screen. Repeated dashboard stat cards and
-unnecessary hero copy were rejected: this is an instrument for making a small
-physical badge, and the canvas should receive the space.
+LittleFS is never formatted on an ordinary mount failure. Initialization first
+checks **every byte** of the asset partition is erased (0xff). Nonblank damaged
+storage is left intact. Images upload to a temporary file and are checked for
+exact dimensions, byte count and RGB565 masks before rename. Card metadata uses
+CRC validation, verified temporary writes, current/backup generations and revision
+conflict detection. Garbage collection preserves images used by either generation.
+An interrupted asset upload never replaces the current manifest. Zero through ten
+cards are supported; an empty collection returns to QR onboarding. Legacy profile
+and custom cards still parse/render on the badge; only artwork creation appears
+in the editor.
 
-## Primary references
+## BLE and browser
 
-- https://github.com/lovyan03/LovyanGFX/tree/1.2.7
-- https://docs.lvgl.io/9.2/porting/display.html
-- https://github.com/lvgl/lvgl/blob/v9.2.2/src/libs/bmp/lv_bmp.c
-- https://docs.espressif.com/projects/arduino-esp32/en/latest/api/ledc.html
-- https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display
-- https://github.com/ralsina/esposito/blob/main/CYD2USB.md
-- https://www.eniacelec.com/pages/tickey (interaction inspiration only)
+`Network` is now a transport-neutral device API despite its historical name.
+NimBLE callbacks copy bounded packets to a four-entry queue; the Arduino loop
+alone mutates files, settings and LVGL. Overflow or timeout aborts a transfer and
+disconnects; no callback performs filesystem I/O or draws a screen.
 
-The dual-USB reference contains hardware/rotation assumptions that do not all
-match the supplied working firmware. Original pins are authoritative for this
-migration; controller identity and calibration need physical observation. The
-owner confirmed upright rotation 0 and observed a red/blue swap; this panel
-requires LovyanGFX rgb_order=false. Successful initialization is not visual
-verification.
+See [the protocol](API.md). Both request headers and body are chunked down to MTU
+23. Writes have explicit offset acknowledgements. Response chunks also require
+acknowledgements, bounding notification pressure. Browser GATT writes have an
+independent queue because a notification may arrive before its ACK write promise
+settles; download timeouts refresh on incoming chunks. Each packet carries a request
+sequence and each queued firmware packet a connection generation. On disconnect,
+partial upload and session credentials are discarded. A 15-second inactivity
+timeout applies per active transfer; the whole card may take longer.
+
+The link uses encrypted GATT with NoInputNoOutput pairing and retained bonding
+keys. Link security starts on connect before encrypted reads. Physical revocation
+also deletes saved BLE bonds. This is combined with application-level
+ownership through a random per-device QR key. The key differs from old Wi-Fi
+credentials, never appears in server query parameters, and is removed from the
+browser URL immediately. It stays only in tab memory. A photographed QR remains
+usable until physical Settings → Advanced → Revoke editor access generates a new
+key and disconnects all editors. BLE encryption without MITM protection is not a
+substitute for this ownership check. Failed key attempts are rate-limited. Browser
+support depends on OS, Bluetooth daemon/agent and secure Web Bluetooth support.
+
+`web/transport.js` separates operations from GATT packets. `artwork.js` supplies
+one original-image transform for preview and RGB565 export: rotate, fit/fill
+scale × zoom, then screen-space translation. Movement percentages describe the
+allowed travel range, positive right/down, and clamp to prevent holes in Fill.
+Pointer capture, cancellation and requestAnimationFrame keep dragging bounded.
+Loaded originals are retained during editing; saves do not resample the source.
+Transforms persist when selecting other cards in the tab; after reconnect/reload,
+previously saved cards start from their flattened on-device artwork.
+
+## Design and deployment
+
+The frontend-design skill guided a symmetrical charcoal enclosure as the focal
+object, local Montserrat headings, quiet mist surfaces, cobalt controls and coral
+unsaved feedback. Themes use semantic tokens and initialize before CSS. On mobile,
+the preview and controls precede the collection. No fake hardware chrome or theme
+filter is applied to artwork.
+
+GitHub Actions tests the editor and portable firmware core, builds pinned firmware,
+and publishes static `web/` plus a firmware directory named for the deployed commit.
+Script/style URLs include the commit to prevent old cached transport code being
+loaded by a new page. Older packages remain in workflow artifacts for GitHub’s
+configured retention period; Pages serves the current deployment. USB uses locally
+vendored ESP Web Tools 10.4.0, loaded only when requested. Fresh and update manifests
+are separate; updates contain only the application at 0x10000. Neither includes a
+filesystem or NVS image. The installer prompts explicitly about erasure and leaves
+it unchecked. No OTA support is advertised. No backend or user account is required.
+
+Primary implementation references: [LVGL 9.2 display ownership](https://docs.lvgl.io/9.2/porting/display.html),
+[Web Bluetooth](https://developer.chrome.com/docs/capabilities/bluetooth),
+[ESP Web Tools](https://esphome.github.io/esp-web-tools/), and pinned library sources
+under PlatformIO's dependency directory.

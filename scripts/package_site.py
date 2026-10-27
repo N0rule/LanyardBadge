@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Package static site and per-commit firmware manifests without filesystem images."""
-import argparse, hashlib, json, shutil, subprocess, struct
+import argparse, hashlib, json, re, shutil, subprocess, struct
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser(description=__doc__)
@@ -11,6 +11,10 @@ out.mkdir(parents=True, exist_ok=True)
 shutil.copytree(ROOT/'web', out, dirs_exist_ok=True)
 revision = subprocess.check_output(['git','rev-parse','--short=12','HEAD'], cwd=ROOT, text=True).strip()
 version = '2.3.0-' + revision
+# Pages caches static assets. A new index must not load an older BLE transport.
+index = out/'index.html'
+index.write_text(re.sub(r'((?:src|href)="\./[^"?]+\.(?:js|css))(")',
+                       lambda match: match[1]+'?v='+revision+match[2], index.read_text()))
 firmware = out/'firmware'
 build = ROOT/'.pio/build/cyd2usb'
 versioned = firmware/version

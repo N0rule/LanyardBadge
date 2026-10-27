@@ -4,13 +4,17 @@
 #include <stddef.h>
 namespace badge {
 namespace {
-void randomKey(char *out) {
+void randomKey(char *out, bool radioActive = false) {
     static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
-    bootloader_random_enable();
+    // The boot entropy source shares ADC/RF resources. BLE already supplies
+    // entropy when revoking a key at runtime.
+    if (!radioActive)
+        bootloader_random_enable();
     for (unsigned i = 0; i < 16; ++i)
         out[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
     out[16] = 0;
-    bootloader_random_disable();
+    if (!radioActive)
+        bootloader_random_disable();
 }
 bool validBase(const SettingsV2 &s) {
     return s.brightness >= 5 && s.brightness <= 100 && (s.rotation == 0 || s.rotation == 2) &&
@@ -59,7 +63,7 @@ bool SettingsStore::save() {
 }
 bool SettingsStore::revokePairing() {
     Settings before = value;
-    randomKey(value.pairingKey);
+    randomKey(value.pairingKey, true);
     if (save())
         return true;
     value = before;

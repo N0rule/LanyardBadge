@@ -1,95 +1,66 @@
-# Local editor API
+# Device operations over BLE
 
-The HTTP server runs on port 80 only while a configuration window is open.
-Static editor assets require no authentication. Other routes use
-`Authorization: Bearer <token>`. There is no CORS allowance. Responses are JSON
-except for static assets and image downloads. All requests use `Content-Length`;
-chunked and multipart uploads are not supported.
+Service `f40d1000-6f15-4d56-b6d4-17c92e648a10`.
+Receive/write `f40d1001-6f15-4d56-b6d4-17c92e648a10`.
+Transmit/read/notify `f40d1002-6f15-4d56-b6d4-17c92e648a10`.
+Encrypted writes/reads; subscribe before sending requests. A read returns three
+bytes: protocol version 1, then little-endian negotiated MTU (uint16).
 
-| Method / path              | Request                                               | Result                                        |
-| -------------------------- | ----------------------------------------------------- | --------------------------------------------- |
-| POST /api/pair             | `{"password":"<on-screen password>"}`                 | New session token                             |
-| GET /api/status            | —                                                     | Memory, storage, Wi-Fi and persisted settings |
-| GET /api/cards             | —                                                     | Versioned deck and revision                   |
-| POST /api/cards            | Complete deck with matching revision                  | Committed deck, next revision                 |
-| POST /api/assets           | `image/bmp`, exactly 153666 bytes                     | Immutable image ID                            |
-| GET /api/image?id=xxxxxxxx | Valid image ID                                        | RGB565 BMP                                    |
-| POST /api/select           | `{"id":"xxxxxxxx"}`                                   | Updated status                                |
-| POST /api/settings         | Brightness, autoplay, interval, rotation, defaultCard | Updated status                                |
-| POST /api/network          | `{"ssid":"...","password":"..."}`                     | Updated status, asynchronous connection       |
-| POST /api/gc               | `{}`                                                  | Number of orphan backgrounds removed          |
-| POST /api/calibrate        | `{}`                                                  | Starts four-corner calibration on the badge   |
-| POST /api/close            | `{}`                                                  | Success, then server/AP close                 |
+Every framed packet starts with operation (u8), request sequence (u16 LE), offset
+or length (u32 LE). Remaining bytes are payload. Total packet length ≤ min(512,
+MTU−3). At MTU 23, 13 payload bytes remain. Requests are serialized per connection.
 
-JSON bodies have a 24576-byte limit and a maximum nesting depth of eight for
-card data. Standard editor requests are `application/json`; assets use
-`image/bmp`. Bodies are streamed through WebServer's raw callback, including
-JSON, rather than allowing the framework to allocate arbitrarily large POST
-strings. Unknown routes have a catch-all handler that closes body uploads
-without buffering them.
+1. Client sends operation 4 fragments containing a UTF-8 JSON header:
+   `{method:"POST",path:"/api/pair",token:"",length:31}`. Offset is header bytes
+   already sent; device acknowledges with operation 0 and cumulative header bytes.
+2. Client sends operation 1 with no payload to start the parsed request; device
+   acknowledges operation 0, offset 0. Older inline headers remain accepted.
+3. Client sends operation 2 body fragments, offset equal to acknowledged body
+   bytes. Device acknowledges operation 0 and cumulative accepted bytes. Wait for
+   every acknowledgement. Empty requests skip body chunks.
+4. Client sends operation 3 with final body length.
+5. Device replies operation 1: total response length in offset field, HTTP-style
+   status (u16 LE) in payload. Body is JSON except image reads.
+6. Device sends operation 2 response fragments with byte offsets. Client sends
+   operation 5 acknowledgements with cumulative response bytes. Device waits for
+   each acknowledgement before sending another chunk.
+7. Device sends operation 3 with final response length.
 
-Pairing attempts are limited after five failures for 30 seconds. Tokens expire
-on device restart, setup closure, a new successful pairing, or 20 minutes idle.
-The AP itself has a 15-minute window. The owner must reopen it physically or by
-USB serial. Authentication precedes image file creation.
+Errors can produce a response before the request body completes. Clients must
+accept and report those responses while waiting for an acknowledgement. Sequence,
+offset, size and final response length are validated. Disconnect on transport
+failure and reauthenticate before retrying; do not blindly replay metadata writes.
+Check the current revision after an uncertain commit. All browser GATT writes,
+including response acknowledgements, are serialized independently of API requests;
+response inactivity timers refresh for each received chunk. Firmware discards queued
+packets from old connection generations. There is a 15-second transfer inactivity
+timeout and a 20-minute API session lifetime refreshed by authenticated operations.
 
-## Card schema
+| Operation | Body / response |
+| --- | --- |
+| POST `/api/pair` | `{password: QR-key}` → `{token}` |
+| GET `/api/status` | Diagnostics, storage, settings, current selection, sleep/BLE state |
+| GET `/api/cards` | `{version:2,revision,cards:[...]}` |
+| POST `/api/cards` | Complete deck with matching revision → committed deck |
+| POST `/api/assets` | Exactly 153666 RGB565 BMP bytes → `{id}` |
+| GET `/api/image?id=xxxxxxxx` | Validated image ID → BMP bytes |
+| POST `/api/select` | `{id}` → device status |
+| POST `/api/settings` | brightness, interval, autoplay, rotation, defaultCard, optional screenTimeout |
+| POST `/api/calibrate` | `{}` → starts optional physical calibration |
+| POST `/api/gc` | `{}` → number of unreferenced images removed |
+| POST `/api/display` | `{}` → returns to artwork |
+| POST `/api/close` | `{}` → closes the session |
 
-```json
-{
-  "version": 2,
-  "revision": 1,
-  "cards": [
-    {
-      "id": "00000001",
-      "title": "Hello",
-      "mode": "profile",
-      "image": "",
-      "name": "Ada",
-      "description": "Making small things.",
-      "url": "https://example.com",
-      "background": 14274303,
-      "foreground": 2306637,
-      "accent": 3561945,
-      "texts": [],
-      "shapes": []
-    }
-  ]
-}
-```
+Except pairing, operations require the session token in the request header. Asset
+uploads additionally require the authenticated connection. UUIDs and API paths
+are protocol identifiers, not HTTP requests against GitHub Pages.
 
-There must be 1–10 cards with unique eight-character lowercase hexadecimal IDs.
-`image` is empty or an uploaded image ID. Modes: `profile`, `artwork`, `custom`.
-Colors are unsigned RGB888 integers, 0–16777215. Title/name limits: 48 bytes;
-description/text: 96 bytes; HTTP(S) URL: 100 bytes. Printable ASCII and line
-breaks are supported, but URLs cannot contain whitespace. Titles cannot be
-empty.
+Cards retain the version-2 compatibility schema: id, title, mode, image, background,
+foreground, accent, name, description, url, texts and shapes. New editor cards use
+`mode:"artwork"` and empty legacy fields. Zero through ten cards; unique eight-digit
+lowercase hex IDs; bounded ASCII titles and legacy text. Failed metadata commits
+leave both the edited source in the browser and the previous valid manifest on the
+device. An asset uploaded before a failed commit can be reused in the same tab.
 
-Custom `texts` (up to four) contain text, x (0–220), y (0–300), size (14/20/28),
-and color. Custom `shapes` (up to four) contain x, y, w, h, radius (0–120), and
-color. Shapes must fit entirely within the logical 240 × 320 display. A circle
-is a square with radius at least half its side. Text wraps within the remaining
-screen width; content beyond the available height is ellipsized.
-
-To replace a background: clean old orphans, upload the new file, then commit a
-deck referencing its returned ID. Clear a card's image field to remove artwork.
-The old deck remains authoritative until the manifest commit succeeds. Reload a
-fresh revision after HTTP 409; retrying a stale manifest is intentionally
-rejected.
-
-## Accepted bitmap
-
-Windows BMP, 66-byte header, BITMAPINFOHEADER size 40, positive width 240 and
-height 320, one plane, 16 bits per pixel, BI_BITFIELDS (3), pixel offset 66, RGB
-masks F800 / 07E0 / 001F, 153600 bytes of pixels. Pixels are RGB565 little
-endian, rows bottom first. The browser does all decoding, scaling and cropping.
-The image header and byte count are checked before atomic installation. The
-format needs one row of decoder memory, not 153600 bytes of application heap.
-
-Typical failures: 401 pairing required, 409 revision conflict, 413 body length,
-415 content type, 422 invalid data, 429 pairing rate limit, 507 storage failure.
-A stalled raw body times out after 250 ms without data; uploads have an
-additional 30-second limit. These limits favor a direct local connection. During
-successful uploads the UI is serviced between chunks. Header parsing or a
-stalled socket can still cause a bounded pause; it is not a hard real-time
-interface.
+BLE firmware updates are not implemented. Firmware installation uses USB manifests,
+not this service.

@@ -1,241 +1,122 @@
 # LanyardBadge 2.0
 
-A portrait digital badge for the classic ESP32 Cheap Yellow Display. Create a
-profile, carry a favorite illustration, or arrange your own text and graphics
-from an offline browser editor. No account, cloud, phone app, SD card, or PSRAM.
+Artwork you can wear. Choose an image, position it in a portrait badge preview,
+and upload it over Bluetooth. No account, native app, Wi-Fi setup, SD card or PSRAM.
 
-## Hardware and stack
+**[Open the companion editor](https://n0rule.github.io/LanyardBadge/)**
 
-The default `cyd2usb` build targets a 240 × 320 ST7789 display, XPT2046
-resistive touch, and 4 MB flash. USB connectors face **down**. Portrait rotation
-0 was confirmed by the owner. An observed red/blue swap was corrected in the new
-LovyanGFX configuration; the corrected colors still need a visual recheck.
+The current firmware is 2.3.0. It targets the 4 MB ESP32 CYD2USB with ST7789 and
+XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 
-PlatformIO espressif32 8.0.0 / Arduino-ESP32 3.3.12, LovyanGFX 1.2.7, LVGL
-9.2.2, XPT2046 v1.4, ArduinoJson 7.4.2. Pins live in
-[include/Board.h](include/Board.h). The original sketch is retained in Git and
-in the root directory; PlatformIO now builds only `src/`.
+## Use your badge
 
-See [architecture](docs/ARCHITECTURE.md), [API](docs/API.md),
-[hardware checklist](docs/HARDWARE_CHECKLIST.md), and
-[verification results](docs/VERIFICATION.md).
+1. New blank boards show a centered QR without requiring calibration. Scan it or
+   open the editor manually. The badge advertises its device-specific BLE service.
+2. Choose **Connect your badge** in a supported secure Web Bluetooth browser.
+   A scanned QR supplies the ownership key; it is immediately removed from the URL.
+3. Choose artwork, rotate, fit/crop, zoom and drag it into position. The preview
+   and final upload share the same transformation. Upload the card, then wear it.
+4. Swipe the physical artwork screen to change cards; hold it to open the menu.
+   Settings include brightness, slideshow and display timeout. Touch wakes a dark
+   screen, consuming the first press. Default timeout is two minutes; Never is
+   available.
 
-## Build and flash on Linux
+Chrome/Edge on supported desktop or Android configurations can use Web Bluetooth.
+iOS Safari is unsupported. Linux needs a running Bluetooth daemon and a pairing
+agent. Device discovery and pairing are real browser/OS prompts, not simulated
+connection states. USB firmware installation needs desktop Web Serial.
 
-Install PlatformIO Core and ensure your user can access `/dev/ttyUSB0`. The
-first build downloads the pinned libraries. No Node, VS Code, or web build step
-is required: Python's standard library embeds deterministic gzip assets.
+Calibration is optional under **Settings → Advanced**. Hold the physical BOOT
+button two seconds to reopen the editor QR, or six seconds for touch recovery.
+Revoke editor access under Advanced to replace a photographed/lost pairing key.
+Older profile/custom cards remain readable and displayable; new creation is
+artwork-only. The editor labels legacy cards and replaces their layout only when
+you explicitly choose artwork and upload.
+
+## Build, preserve data, and flash
+
+Use PlatformIO CLI. Dependencies are pinned in `platformio.ini`.
 
 ```sh
-pio run
-pio run -t upload --upload-port /dev/ttyUSB0
-pio device monitor -p /dev/ttyUSB0 -b 115200
-pio run -t clean
+pio run -e cyd2usb
+pio run -e cyd2usb -t upload --upload-port /dev/ttyUSB0
+python scripts/device.py status
 ```
 
-`pio run -e cyd` also builds the older ILI9341 variant. It has not been tested
-on physical hardware. Do not select it for the confirmed ST7789 device.
+Close all serial monitors and BLE test clients before uploading. Opening the
+CH340 port can reset the board even when a diagnostic tool does not request reset;
+keep one serial connection open when collecting concurrent BLE diagnostics.
 
-**Before migrating an existing device, back up its flash.** This rewrite uses a
-new partition table and can overwrite the old application and filesystem layout.
+The partition layout preserves the connected 2.1.0 device: a 2 MiB application at
+`0x10000`, LittleFS at `0x210000` for `0x1f0000` bytes. Actual padded firmware size
+is checked after build and before upload. Ordinary updates write no filesystem
+image. Settings migrate to a separate versioned NVS key without deleting v2.
+
+**Back up existing devices before migration.** Other firmware/layouts, including
+the intermediate 2.5 MiB app layout, need an explicit offline migration. Do not
+use a data-preserving update manifest on an incompatible partition table.
 
 ```sh
 mkdir -p backups
-python3 -m esptool --chip esp32 --port /dev/ttyUSB0 --baud 921600 \
-  read-flash 0 0x400000 backups/original-4mb.bin
-sha256sum backups/original-4mb.bin
+esptool --port /dev/ttyUSB0 --baud 921600 read-flash 0 0x400000 backups/device-4mb.bin
+sha256sum backups/device-4mb.bin
 ```
 
-A full backup of the connected device was made before this migration. `backups/`
-is ignored by Git because full flash can contain credentials. To restore that
-entire previous device state, stop all serial monitors and run:
+Backups and `.secrets/` are ignored: flash can contain credentials. Never use
+`erase-flash` or `uploadfs` for ordinary updates. A mount failure preserves data;
+only a verified entirely erased asset partition is initialized automatically.
 
-```sh
-python3 -m esptool --chip esp32 --port /dev/ttyUSB0 --baud 921600 \
-  write-flash 0 backups/original-4mb.bin
-```
+## Editor and USB installation
 
-Restoring the backup replaces **all** new cards, settings, credentials and
-firmware. Do not use `erase-flash` or `uploadfs` for a normal firmware update.
+`web/` is a static app. All URLs work under `/LanyardBadge/`. Light, dark and System
+themes initialize before paint and preserve editing state. The enclosure has equal
+opposite bezels; theme changes never alter artwork colors. Position percentages
+represent allowed travel (positive right/down), not percentages of image pixels.
 
-## First use
+The USB installer uses locally vendored **ESP Web Tools 10.4.0**, loaded on demand.
+Choose the ST7789 CYD2USB target. Fresh manifests include bootloader, partition
+table and application; update manifests include **only** the application. Erasure
+requires an explicit installer choice and destroys stored cards/settings. There
+is no OTA or BLE firmware installer.
 
-1. The badge boots into its last manually selected card. Two built-in cards work
-   even if the filesystem is unavailable.
-2. Calibrate touch first. On a fresh badge, hold the screen for 750 ms to start
-   the four-corner wizard. Lift your finger between targets. You can also start
-   calibration over serial or from Device settings in the browser.
-3. Initialize the new filesystem once, after backing up the old flash. On the
-   badge, open Device information and choose storage initialization.
-   Alternatively, run `python3 scripts/device.py storage-init`. Initialization
-   is refused for an existing mounted collection. An empty mounted filesystem
-   can resume interrupted provisioning without formatting. It erases an
-   unmounted asset partition, installs the built-in gallery and the supplied
-   sample illustration, and saves the card database. Mount failures never
-   trigger automatic formatting.
-4. Hold **BOOT for two seconds** to open configuration. This works without touch
-   calibration. Join `LanyardBadge-Setup` using the generated password shown on
-   the screen. Open **http://192.168.4.1** and enter the same password to pair.
-5. Choose or create a card. Add artwork, crop it, edit the text and colors, then
-   select **Save to badge**. Saving also displays the edited card immediately.
-
-The hotspot and editor close after 15 minutes. Reopen configuration from the
-badge menu or BOOT. The normal badge screen does not show setup credentials. The
-AP name is defined in the persisted settings defaults in
-`src/storage/Settings.h`; change that default before first provisioning when
-building several badges. Each device generates its own random password.
-
-## Touch and navigation
-
-- Tap the left or right half of a badge to switch cards.
-- Swipe left/right after calibration to switch cards.
-- Hold the screen for 750 ms to open the menu.
-- The menu provides gallery selection, brightness, slideshow interval, default
-  card, editor connection, device information, calibration, diagnostics and
-  restart.
-- BOOT held for two seconds opens the editor connection screen independently of
-  touch.
-
-For calibration, run `python3 scripts/device.py calibrate`, or select Calibrate
-touch in Device information. Touch and hold each crosshair, then lift your
-finger before moving to the next one. Three points fit an affine mapping; the
-fourth must be within 18 pixels before the mapping is saved. An uncalibrated
-badge starts this wizard on its first long press. It can also be started from
-Device settings in the browser, without a USB command. A 60-second timeout keeps
-the previous mapping. Mapping is stored independently of portrait rotation.
-
-Brightness is kept above 5% so the screen cannot accidentally become invisible.
-Manual settings and selections are coalesced over 1.5 seconds before NVS writes.
-Wait two seconds before removing power. Slideshow advances are intentionally not
-written to NVS every interval; reboot returns to the last manual selection. The
-default card is used if that selection is removed or unavailable.
-
-## Making cards
-
-- **Profile:** editable name, description, cropped circular photo/avatar, three
-  colors, and a high-contrast QR link. Keep names short enough for one line.
-- **Artwork:** full-screen photo or illustration, with fill/crop, fit, zoom and
-  position controls. Transparent images use the chosen background color.
-- **Custom:** background artwork, up to four text blocks and four rounded
-  rectangles/circles. Set positions numerically or drag them in the preview. An
-  optional QR code sits in the lower-right corner above the other content.
-- **Gallery:** ten card slots. Reorder, delete, select and configure timed
-  switching. Deletions and ordering take effect when you save.
-
-The editor accepts JPEG, PNG, WebP and BMP supported by the browser, up to 24 MB
-and 50 megapixels. It prepares a 240 × 320 RGB565 bitmap locally; the ESP32
-never allocates a full decoded image. A background uses 153,666 bytes,
-regardless of source size. Browser decoding of very large files can still
-consume substantial phone memory; smaller source files are preferable.
-
-Prepared crops are stored; original full-resolution photos stay on your
-computer. After reloading, further cropping starts from the prepared image.
-Choose the original file again to recover cropped-out areas or reuse a profile
-avatar as full-screen artwork. Browser font metrics and device anti-aliasing can
-differ slightly; text and shape placement use the same coordinates and font
-sizes.
-
-The bundled device fonts support printable ASCII text and line breaks.
-Unsupported characters are rejected with a useful error. QR links accept
-HTTP(S), up to 100 ASCII bytes. QR modules are integer scaled, black on white,
-with a quiet zone; verify scanning on the physical TFT, especially for long URLs
-and low brightness.
-
-All editor assets, including Montserrat and Nayuki's QR encoder, are local.
-Third-party licenses remain in `web/FONT-LICENSE.txt` and `web/qrcode.js`. The
-sample BMP is a zlib-compressed copy of the supplied `ExampleImage.png`; it is
-inflated in 32 KiB chunks only when provisioning storage. The bundled sample is
-quantized to 256 colors to fit flash; uploads retain full RGB565 color
-precision.
-
-## Storage and updates
-
-The 4 MB layout reserves 2 MiB for firmware and 1,984 KiB for LittleFS, plus
-NVS, PHY data, bootloader and partition table. There is no OTA slot. See
-[partitions.csv](partitions.csv) for exact offsets.
-
-Content writes use immutable image names, a temporary upload, length/header
-checks, and atomic rename. Card metadata has a CRC and a previous generation.
-Interrupted uploads do not replace existing images. An invalid current database
-falls back to its backup, then built-in cards. Missing backgrounds show a small
-warning.
-
-The previous generation's backgrounds are kept for recovery. Cleaning unused
-backgrounds preserves both generations. If storage is full, delete an unused
-card and save; a later save lets the old generation retire before cleanup.
-Replace backgrounds one at a time when close to capacity. Multiple unsaved
-background replacements need temporary space for every new image before the
-manifest commits.
-
-USB firmware updates with this same partition layout preserve cards and
-settings. There is no automatic filesystem reset. No SD, Bluetooth, NFC, battery
-features or OTA are implied by the interface. TFT content disappears when USB
-power is lost.
-
-## Security and network behavior
-
-Configuration is a physical-access, time-limited session. The AP uses WPA2 with
-a random 16-character password stored in NVS, never in source. Pairing returns a
-random bearer token kept in browser session storage and device RAM. Pairing is
-rate-limited. Image and JSON requests authenticate before raw body ingestion;
-body size, transfer duration, request target and header lengths are bounded.
-
-A saved 2.4 GHz network reconnects without blocking the UI. The HTTP editor
-still only runs while configuration is open. It uses local HTTP, so use a
-trusted LAN or the WPA2 setup AP; there is no TLS, internet account or remote
-access. NVS and flash backups are not encrypted. Treat access to USB and full
-flash as privileged. Wi-Fi credentials are neither logged nor returned by the
-API.
-
-## Diagnostics and tests
-
-```sh
-python3 scripts/device.py --reset --seconds 5 status
-python3 scripts/device.py diag
-python3 scripts/device.py setup
-python3 scripts/device.py --seconds 50 selftest
-python3 scripts/device.py close badge
-python3 scripts/soak_device.py --switches 100
-scripts/test-host.sh
-```
-
-Type `help` in a serial monitor to list commands. `selftest` requires mounted
-storage and an open setup session. It uses a temporary TCP client task on the
-ESP32 itself, exercises real HTTP routes, tests image transfers and failure
-recovery, saves the unchanged card deck, and removes its temporary background.
-Pairing invalidates any existing editor token, so run it outside an editing
-session. It does not require changing your computer's Wi-Fi connection.
-
-Optional browser tests are development-only:
+The GitHub Pages workflow runs host/browser tests, builds firmware and publishes
+per-commit binaries, manifests and SHA-256 sums. To package it locally:
 
 ```sh
 npm ci --prefix tests
-npm exec --prefix tests -- playwright install chromium
-npm test --prefix tests
+python scripts/vendor_installer.py
+pio run -e cyd2usb
+python scripts/package_site.py
+python scripts/validate_site.py test-results/site
 ```
 
-Browser tests use intercepted local API responses and need no running server or
-external service. They cover editing, image preparation, failed-save retry,
-gallery changes, drag positioning, mobile layout and device settings. Hardware
-tests and their limits are recorded separately from compilation.
+## Validation
 
-## Troubleshooting
+```sh
+bash scripts/test-host.sh
+npm ci --prefix tests
+npx --prefix tests playwright install chromium
+npm test --prefix tests
+python scripts/benchmark_device.py --switches 50
+```
 
-- **Red and blue exchanged:** check `p.rgb_order` in Display.cpp; this board
-  needs `false` in LovyanGFX. Its boolean does not directly match TFT_eSPI's
-  color macros.
-- **Upside down:** run `rotate`, use the on-device diagnostic button, or change
-  portrait orientation in editor settings. Both candidates retain 240 × 320.
-- **Touch inaccurate/unreachable:** run `calibrate` over serial. Keep the USB
-  connectors downward and lift between targets. BOOT always opens setup.
-- **No setup network:** hold BOOT again; the 15-minute session may have expired.
-  An unrelated Wi-Fi network may prevent a phone from staying on an AP without
-  internet; choose to stay connected and use the numeric address.
-- **Storage unavailable:** back up the flash before explicit initialization. Do
-  not automatically format a device containing wanted cards.
-- **Upload failed:** retain the browser tab, reconnect, and retry. Existing
-  content remains usable. A revision conflict requires reloading before applying
-  edits.
-- **Core-dump partition warning at boot:** the upstream Arduino build enables
-  flash core dumps, but this layout allocates no core-dump partition. The
-  warning is harmless; serial crash output remains available.
+The benchmark renders both old LVGL and optimized streaming paths on the same
+hardware; it changes selection temporarily and restores the initial selection.
+It also exercises sleep/wake state and restart persistence. Physical tap-to-wake,
+colors and touch accuracy still need an observer.
+
+A real radio test is available with Bleak installed in a virtual environment:
+
+```sh
+python scripts/test_ble.py --key-file .secrets/pairing-key
+```
+
+Supply the device-specific key through a private file, never a command argument,
+public log or commit. Browser tests simulate GATT peripherals and separately
+verify transform/export pixel error bounds; they do not establish a radio link.
+See [verification](docs/VERIFICATION.md) for actual results and remaining physical
+checks, [architecture](docs/ARCHITECTURE.md) for memory/storage tradeoffs, and
+[BLE protocol](docs/API.md) for transport details.
+
+The older `cyd`/ILI9341 environment is retained as a compatibility build target.
+Only CYD2USB/ST7789 has been connected and measured in this development session.

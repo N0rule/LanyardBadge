@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const assetVersion = new URL(document.currentScript.src).searchParams.get('v') || '';
   const $ = (id) => document.getElementById(id),
     { BluetoothTransport } = BadgeTransport;
   const transport = (globalThis.badgeDevice = new BluetoothTransport());
@@ -182,6 +183,13 @@
     $('background').value = hex(c.background);
     $('editing-title').textContent = c.title;
     $('legacy-note').hidden = c.mode === 'artwork';
+    $('save-state').textContent = changed
+      ? 'Unsaved changes'
+      : c.image
+        ? 'Saved on badge'
+        : 'Choose artwork to begin';
+    $('save-state').classList.toggle('unsaved', changed);
+    if (!busy) $('upload-state').hidden = true;
     sync();
     gallery();
     schedule();
@@ -255,7 +263,7 @@
       throw e;
     }
     transport.change('connected');
-    $('connect').textContent = 'Reconnect badge';
+    $('connect').textContent = 'Disconnect';
     $('welcome').hidden = true;
     $('device-open').disabled = false;
     $('show-card').disabled = false;
@@ -263,6 +271,10 @@
     $('pair-dialog').close();
   }
   $('connect').onclick = async () => {
+    if (connected) {
+      transport.disconnect();
+      return;
+    }
     try {
       if (transport.device) await transport.reconnect();
       else await transport.connect(intendedName);
@@ -627,7 +639,8 @@
         mode === 'fresh'
           ? 'For blank boards only. Installation writes a bootloader and partition table. Back up any existing firmware/data first. Erase device is optional in the installer and destroys all cards/settings.'
           : 'Updates write only the application. Existing 2.x layout required: app at 0x10000, storage at 0x210000. Leave “Erase device” unchecked to preserve cards/settings.';
-      const manifest = `./firmware/${mode}.json`;
+      const manifest =
+        `./firmware/${mode}.json` + (assetVersion ? '?v=' + encodeURIComponent(assetVersion) : '');
       const response = await fetch(manifest, { cache: 'no-store' });
       if (!response.ok) throw Error('Firmware has not been published here yet.');
       await response.json();

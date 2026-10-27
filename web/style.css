@@ -659,3 +659,21 @@ pre {
     order: 2;
   }
 }
+
+/* ESP Web Tools dialogs are appended to body and use Material semantic tokens. */
+ewt-install-dialog,
+ewt-no-port-picked-dialog {
+  --text-color: var(--muted);
+  --danger-color: var(--danger);
+  --md-sys-color-primary: var(--accent);
+  --md-sys-color-on-primary: var(--accent-ink);
+  --md-sys-color-on-surface: var(--ink);
+  --md-sys-color-on-surface-variant: var(--muted);
+  --md-sys-color-surface: var(--surface);
+  --md-sys-color-surface-container: var(--surface);
+  --md-sys-color-surface-container-high: var(--surface);
+  --md-sys-color-surface-container-highest: var(--panel);
+  --md-sys-color-secondary-container: var(--soft);
+  --md-sys-color-outline: var(--line);
+  color: var(--ink);
+}

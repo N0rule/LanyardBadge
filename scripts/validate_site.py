@@ -3,13 +3,14 @@
 from pathlib import Path
 from html.parser import HTMLParser
 import hashlib, json, sys
+from urllib.parse import urlsplit
 root=Path(sys.argv[1])
 class Links(HTMLParser):
     def handle_starttag(self,tag,attrs):
         for key,value in attrs:
             if key in ('src','href') and value and not value.startswith(('https:','#')):
                 assert not value.startswith('/'),f'Root-relative URL: {value}'
-                assert (root/value).exists(),f'Missing asset: {value}'
+                assert (root/urlsplit(value).path).exists(),f'Missing asset: {value}'
 Links().feed((root/'index.html').read_text())
 for mode in ('fresh','update'):
     manifest=json.loads((root/'firmware'/f'{mode}.json').read_text())
