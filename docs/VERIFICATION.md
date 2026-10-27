@@ -2,6 +2,13 @@
 
 ## 2.3.3 upload and editor polish
 
+Released source: `06080d0d311e` on `main`.
+[Build, 26 browser tests and Pages deployment passed](https://github.com/N0rule/LanyardBadge/actions/runs/40565001836).
+A fresh public-site browser check verified that release's versioned assets, the
+existing custom-domain redirect, two-action landing, hidden disconnected editor,
+white light theme and no script/asset errors. That smoke check made no BLE
+connection; the separate hardware tests below used the real local editor.
+
 CYD2USB application compiled and flashed through the guarded uploader: 1,671,600
 bytes in the unchanged 2 MiB app partition; static RAM 73,752 bytes. No erases,
 filesystem uploads or partition changes. A fresh 4 MiB backup is retained locally
@@ -44,8 +51,10 @@ browser-granted badge without opening another chooser.
 A real Bleak/BlueZ client interrupted a transfer after its first accepted chunk.
 Serial confirmed Receiving → Failed → Idle, and a new encrypted connection
 verified that the exact collection, revision and preferences remained unchanged.
-Evidence: `studio-real-browser-upload.json`, `studio-upload-serial.json` and
-`studio-interrupted-upload.json` under ignored `test-results/`.
+Evidence: `studio-real-browser-upload.json`, `studio-upload-serial.json`,
+`studio-interrupted-upload.json` and `studio-public-smoke.json` under ignored
+`test-results/`. Unreferenced test-upload assets are retained for the normal
+unused-artwork cleanup operation; pre-existing unused files were not deleted.
 
 The owner has **not yet visually checked** the new upload screen. Serial stage
 measurements cannot confirm its physical alignment, readability or tearing.
@@ -378,6 +387,8 @@ in `released-6e94619-backup.log` and `released-6e94619-after-backup-status.log`.
 Credentials are not printed in these reports.
 
 ## GIF preparation foundation after 2.3.3
+
+Source: `913605da2e5c` on `main`.
 
 Thirty Chromium tests pass (27 editor/transport, three GIF preparation).
 The native ImageDecoder test uses an actual local animated GIF, a retained
