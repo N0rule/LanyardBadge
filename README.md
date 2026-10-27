@@ -5,7 +5,7 @@ and upload it over Bluetooth. No account, native app, Wi-Fi setup, SD card or PS
 
 **[Open the companion editor](https://n0rule.github.io/LanyardBadge/)**
 
-The current firmware is 2.3.2. It targets the 4 MB ESP32 CYD2USB with ST7789 and
+The current firmware is 2.3.3. It targets the 4 MB ESP32 CYD2USB with ST7789 and
 XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 
 ## Use your badge
@@ -136,3 +136,8 @@ checks, [architecture](docs/ARCHITECTURE.md) for memory/storage tradeoffs, and
 
 The older `cyd`/ILI9341 environment is retained as a compatibility build target.
 Only CYD2USB/ST7789 has been connected and measured in this development session.
+
+The card editor keeps artwork at the center: choose a file, adjust it directly on
+the badge preview, then upload. Rotation and precise crop controls appear after
+choosing artwork. Uploads use a dedicated progress screen in the badge's saved
+light or dark theme, and only report completion after the card is safely saved.

@@ -188,7 +188,7 @@ void setup() {
     delay(100);
     serialLine.reserve(96);
     pinMode(board::boot, INPUT_PULLUP);
-    Serial.printf("\nLanyardBadge 2.3.2 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
+    Serial.printf("\nLanyardBadge 2.3.3 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
                   ESP.getChipModel(), ESP.getChipRevision(), unsigned(ESP.getFlashChipSize()),
                   unsigned(ESP.getPsramSize()), int(esp_reset_reason()));
     if (!settings.begin())
@@ -220,7 +220,7 @@ void setup() {
         while (true)
             delay(1000);
     }
-    network.progress = [](int p) { ui.uploadProgress(p); };
+    network.progress = [](UploadPhase phase, int percent) { ui.uploadProgress(phase, percent); };
     network.selected = [] { return ui.selected(); };
     network.select = [](unsigned i) {
         show(i);

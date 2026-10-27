@@ -283,6 +283,9 @@
           p?.reject(Error('Invalid badge response'));
           return;
         }
+        // Some BlueZ clients deliver the same value-change event twice.
+        if (this.response && this.response.length === at && this.code === v.getUint16(7, true))
+          return;
         this.response = new Uint8Array(at);
         this.received = 0;
         this.code = v.getUint16(7, true);
@@ -290,6 +293,10 @@
       }
       if (op === 2) {
         const bytes = new Uint8Array(v.buffer, v.byteOffset + 7, v.byteLength - 7);
+        if (this.response && at < this.received && at + bytes.length <= this.received) {
+          // Accept only a byte-identical replay; conflicting/overlapping chunks fail below.
+          if (bytes.every((byte, i) => this.response[at + i] === byte)) return;
+        }
         if (!this.response || at !== this.received || at + bytes.length > this.response.length) {
           p?.reject(Error('Incomplete badge response'));
           return;

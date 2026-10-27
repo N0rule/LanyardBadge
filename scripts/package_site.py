@@ -15,7 +15,7 @@ shutil.copytree(ROOT / "web", out, dirs_exist_ok=True)
 revision = subprocess.check_output(
     ["git", "rev-parse", "--short=12", "HEAD"], cwd=ROOT, text=True
 ).strip()
-version = "2.3.2-" + revision
+version = "2.3.3-" + revision
 # Pages caches static assets. A new index must not load an older BLE transport.
 index = out / "index.html"
 index.write_text(

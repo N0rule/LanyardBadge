@@ -7,6 +7,21 @@
 namespace badge {
 constexpr uint32_t bitmapBytes = 153666;
 constexpr size_t maxCards = 10, maxElements = 4;
+enum class UploadPhase { Idle, Receiving, Saving, Complete, Failed };
+inline const char *uploadPhaseName(UploadPhase phase) {
+    switch (phase) {
+    case UploadPhase::Receiving:
+        return "receiving";
+    case UploadPhase::Saving:
+        return "saving";
+    case UploadPhase::Complete:
+        return "complete";
+    case UploadPhase::Failed:
+        return "failed";
+    default:
+        return "idle";
+    }
+}
 struct Point {
     int16_t x, y;
 };

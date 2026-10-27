@@ -57,6 +57,11 @@ function installMock() {
     return tx;
   };
   tx.readValue = async () => {
+    if (mock.disconnectedReads > 0) {
+      mock.disconnectedReads--;
+      device.gatt.disconnect();
+      throw new DOMException('GATT Server is disconnected.', 'NetworkError');
+    }
     if (mock.securityFailures > 0) {
       mock.securityFailures--;
       throw new DOMException('GATT Error Unknown.', 'UnknownError');
@@ -75,6 +80,7 @@ function installMock() {
     tx.value = v;
     const e = new Event('characteristicvaluechanged');
     tx.dispatchEvent(e);
+    if (mock.duplicateNotifications) tx.dispatchEvent(new Event('characteristicvaluechanged'));
   };
   function send() {
     if (mock.replyDelay) {

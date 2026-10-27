@@ -75,8 +75,7 @@ void Network::pair() {
     String password = d["password"].as<String>();
     bool credential = equalSecret(password, settings_.value.pairingKey);
     password.toUpperCase();
-    bool code = password.length() == 4 &&
-                equalSecret(password, settings_.pairingCode().c_str());
+    bool code = password.length() == 4 && equalSecret(password, settings_.pairingCode().c_str());
     if (!credential && code && (!pairingCodeAllowed || !pairingCodeAllowed())) {
         error(403, "Open Connect to editor on your badge, then enter its code");
         return;
@@ -102,19 +101,28 @@ void Network::pair() {
         paired();
 }
 void Network::cards() {
+    const bool uploadingCard = pendingCardUpload();
+    if (uploadingCard && progress)
+        progress(UploadPhase::Saving, 100);
     JsonDocument d;
     String err;
     if (deserializeJson(d, body_, DeserializationOption::NestingLimit(8)) ||
         !deckFromJson(d.as<JsonVariantConst>(), assets_.staging, err)) {
         error(422, err.length() ? err : "Invalid card data");
+        if (uploadingCard && progress)
+            progress(UploadPhase::Failed, 0);
         return;
     }
     if (assets_.staging.revision != assets_.deck.revision) {
         error(409, "Cards changed on the badge. Reload before saving.");
+        if (uploadingCard && progress)
+            progress(UploadPhase::Failed, 0);
         return;
     }
     if (!assets_.commit(err)) {
         error(507, err);
+        if (uploadingCard && progress)
+            progress(UploadPhase::Failed, 0);
         return;
     }
     if (cardsChanged)
@@ -122,6 +130,11 @@ void Network::cards() {
     JsonDocument out;
     deckToJson(assets_.deck, out);
     json(200, out);
+    if (uploadingCard) {
+        pendingCardUpload_ = false;
+        if (progress)
+            progress(UploadPhase::Complete, 100);
+    }
 }
 void Network::settings() {
     JsonDocument d;
@@ -224,7 +237,7 @@ void Network::dispatch(const String &path) {
 }
 JsonDocument Network::statusDocument() const {
     JsonDocument d;
-    d["firmware"] = "2.3.2";
+    d["firmware"] = "2.3.3";
     d["arduino"] = ESP_ARDUINO_VERSION_STR;
     d["heap"] = ESP.getFreeHeap();
     d["minHeap"] = ESP.getMinFreeHeap();
@@ -266,8 +279,7 @@ void Network::status() {
     json(200, d);
 }
 String Network::summary() const {
-    return String("Lanyard Badge\nFirmware 2.3.2") +
-           "\nStorage: " + assets_.used() / 1024 + " / " + assets_.total() / 1024 +
-           " KiB\nCards: " + assets_.deck.count;
+    return String("Lanyard Badge\nFirmware 2.3.3") + "\nStorage: " + assets_.used() / 1024 + " / " +
+           assets_.total() / 1024 + " KiB\nCards: " + assets_.deck.count;
 }
 } // namespace badge

@@ -21,9 +21,16 @@ class Protocol:
         self.seq = 0
         self.token = ""
         self.initialized = False
+        self.last_notification = None
 
     def notified(self, _, data):
-        self.queue.put_nowait(bytes(data))
+        packet = bytes(data)
+        # BlueZ may report an identical characteristic value change twice.
+        # Reads also emit short HELLO values on some hosts. Neither is a packet.
+        if len(packet) < 7 or packet == self.last_notification:
+            return
+        self.last_notification = packet
+        self.queue.put_nowait(packet)
 
     async def frame(self, op, offset, data=b""):
         await self.client.write_gatt_char(

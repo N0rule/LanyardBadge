@@ -1,5 +1,55 @@
 # Verification record — 2026-10-27
 
+## 2.3.3 upload and editor polish
+
+CYD2USB application compiled and flashed through the guarded uploader: 1,671,600
+bytes in the unchanged 2 MiB app partition; static RAM 73,752 bytes. No erases,
+filesystem uploads or partition changes. A fresh 4 MiB backup is retained locally
+as `backups/before-studio-2.3.3-4mb.bin`, SHA-256
+`d37e24394dc0e9bbbc83f39106a1b35b4196fe029509069f3baaa6c9ac2f2d6e`.
+
+The device upload overlay follows the saved theme, keeps a stable object tree,
+blocks accidental touch actions, and reports success only after metadata commit.
+The website retains its gallery / preview / editor placement, adds cached artwork
+thumbnails, hides adjustments until artwork exists, derives an initial title
+from the filename, and removes repeated explanatory copy. Both website themes and
+mobile/desktop layouts were inspected through local browser screenshots.
+
+Twenty-six simulated-GATT browser tests pass, including the new creation flow
+and duplicate notification events. Host ASan/UBSan, image codec, flash safety,
+static asset and installer manifest/hash validation pass. Real BLE diagnostics
+also reproduced duplicate identical value-change events on this host. The browser
+now accepts identical response replays without reallocating/corrupting a response;
+conflicting chunks still fail. The Python radio test helper filters identical
+consecutive events and short read-value events as well.
+
+Actual Chromium / Web Bluetooth / BlueZ uploads passed on the attached badge in
+both dark and light themes. Serial samples observed Receiving → Saving → Complete
+in each theme, with no sleeping during active stages. The harness deliberately
+holds briefly between asset acceptance and metadata commit to observe Saving;
+these runs are functional tests, not throughput benchmarks. The original two
+cards (including their exact metadata), selected card, calibrated mapping,
+brightness 5, timeout 15 seconds, interval 5 seconds, autoplay off and dark theme
+were restored. Manifest revisions advanced as required by test commits/rollback.
+During this run the lowest sampled free heap was 98,616 bytes; the minimum
+reported largest free block was 61,428 bytes and LVGL's allocator high-water use
+was 3,720 bytes. No full-frame allocation was introduced.
+
+A rapid fresh client after a device reset also reproduced a stale BlueZ connected
+handle which disappeared during the encrypted read. The existing bounded retry
+now includes this lost-link case, while an active native pairing attempt keeps
+its approval window. A dedicated regression test covers reuse of the same
+browser-granted badge without opening another chooser.
+
+A real Bleak/BlueZ client interrupted a transfer after its first accepted chunk.
+Serial confirmed Receiving → Failed → Idle, and a new encrypted connection
+verified that the exact collection, revision and preferences remained unchanged.
+Evidence: `studio-real-browser-upload.json`, `studio-upload-serial.json` and
+`studio-interrupted-upload.json` under ignored `test-results/`.
+
+The owner has **not yet visually checked** the new upload screen. Serial stage
+measurements cannot confirm its physical alignment, readability or tearing.
+
 ## 2.3.2 release UX and revocation recovery
 
 Released source: `c27dd4bbafda` on `main`.

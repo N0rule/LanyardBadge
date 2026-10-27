@@ -32,14 +32,12 @@
     <section id="welcome" class="welcome">
       <div class="landing-content">
         <h1>Your art,<br />on your badge.</h1>
-        <p>Choose something you love. Make it yours. Take it with you.</p>
+        <p>Make a card. Upload it. Wear it.</p>
         <div class="landing-actions">
           <button id="connect" class="primary">Connect your badge</button>
           <button id="install-open">Install firmware</button>
         </div>
-        <p class="hint">
-          Already installed? Connect over Bluetooth.<br />New badge? Install through USB first.
-        </p>
+        <p class="hint">Connect over Bluetooth, or install on a new badge through USB.</p>
         <p id="compatibility" class="hint">
           Use a supported Chrome or Edge browser on desktop or Android.
         </p>
@@ -54,24 +52,27 @@
           <h2>Your cards</h2>
           <span id="card-count">0 / 10</span>
         </div>
-        <p class="hint" id="gallery-hint">Your saved artwork cards appear here.</p>
+        <p class="hint" id="gallery-hint" hidden></p>
         <div id="card-list" class="card-list"></div>
-        <button id="new-card" class="full">+ New card</button>
+        <button id="new-card" class="full add-card">
+          <span aria-hidden="true">+</span> New card
+        </button>
         <div class="gallery-tools">
           <button id="move-up" aria-label="Move card earlier">↑</button
           ><button id="move-down" aria-label="Move card later">↓</button
           ><button id="delete-card" class="danger">Delete</button>
         </div>
-        <div class="storage">
+        <details class="storage">
+          <summary>Badge storage</summary>
           <span id="storage-label">Stored on your badge</span
           ><progress id="storage-meter" max="100" value="0" aria-label="Storage used"></progress
           ><button id="reload" class="text-button">Reload collection</button>
-        </div>
+        </details>
       </aside>
       <section class="preview-space" aria-label="Artwork preview">
         <div class="preview-heading">
           <h2 id="editing-title">Your artwork</h2>
-          <p>Drag your artwork to find its place.</p>
+          <p id="preview-help">Choose artwork to begin.</p>
         </div>
         <div class="badge-object">
           <canvas
@@ -83,7 +84,7 @@
           ></canvas>
         </div>
         <div class="preview-caption">
-          <span id="save-state">Choose artwork to begin</span><span>240 × 320</span>
+          <span id="save-state">Choose artwork to begin</span>
         </div>
         <div class="publish-actions">
           <button id="save-card" class="primary">Upload card</button
@@ -92,13 +93,26 @@
         <div class="upload-state" id="upload-state" role="status" hidden>
           <span id="upload-label"></span><progress id="upload-progress" max="100"></progress>
         </div>
-        <p class="preview-note">
-          Swipe on your badge to switch cards.<br />Hold the screen to open its menu.
-        </p>
       </section>
       <section class="inspector" aria-label="Edit card">
         <h2>Edit card</h2>
         <form id="card-form">
+          <label class="file-drop">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="4" />
+              <circle cx="8" cy="8" r="1.5" />
+              <path d="m4 18 6-6 4 4 3-3 4 4" />
+            </svg>
+            <strong id="artwork-action">Choose artwork</strong>
+            <span id="artwork-status">PNG, JPEG, WebP or BMP</span>
+            <input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" />
+          </label>
           <label
             >Card title<input
               id="title"
@@ -108,15 +122,10 @@
               value="My artwork"
           /></label>
           <p id="legacy-note" class="hint" hidden>
-            This older card stays available on your badge. Choose artwork to replace its layout when
-            you upload.
+            Your original card stays on the badge until you upload new artwork.
           </p>
-          <label class="file-drop"
-            >Choose artwork<span>PNG, JPEG, WebP or BMP</span
-            ><input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"
-          /></label>
-          <fieldset id="crop-controls" disabled>
-            <legend>Make it fit</legend>
+          <fieldset id="crop-controls" disabled hidden>
+            <legend>Adjust artwork</legend>
             <label
               >Fit<select id="fit">
                 <option value="cover">Fill & crop</option>
@@ -125,46 +134,82 @@
             >
             <div class="rotation-row">
               <button id="rotate-left" type="button" aria-label="Rotate artwork left by 90 degrees">
-                ↶ Rotate left</button
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <path d="M4 9h10a6 6 0 1 1-6 6M4 9l4-4M4 9l4 4" />
+                </svg>
+                Left</button
               ><button
                 id="rotate-right"
                 type="button"
                 aria-label="Rotate artwork right by 90 degrees"
               >
-                ↷ Rotate right
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <path d="M20 9H10a6 6 0 1 0 6 6M20 9l-4-4m4 4-4 4" />
+                </svg>
+                Right
               </button>
             </div>
-            <label
-              >Zoom
-              <input
-                id="zoom-value"
-                class="percentage"
-                type="number"
-                min="100"
-                max="300"
-                step="1"
-                aria-label="Zoom percent" /><span class="unit">%</span
-              ><input id="zoom" type="range" min="100" max="300" value="100" step="1"
-            /></label>
+            <label class="range-control">
+              <span class="range-heading"
+                ><span>Zoom</span
+                ><span class="numeric-value"
+                  ><input
+                    id="zoom-value"
+                    type="number"
+                    min="100"
+                    max="300"
+                    step="1"
+                    aria-label="Zoom percent"
+                  /><span>%</span></span
+                ></span
+              >
+              <input id="zoom" type="range" min="100" max="300" value="100" step="1" />
+            </label>
             <label
               >Horizontal <output id="crop-x-output">0%</output
-              ><input id="crop-x" type="range" min="-100" max="100" value="0" step="1"
+              ><input
+                id="crop-x"
+                aria-describedby="position-help"
+                type="range"
+                min="-100"
+                max="100"
+                value="0"
+                step="1"
             /></label>
             <label
               >Vertical <output id="crop-y-output">0%</output
-              ><input id="crop-y" type="range" min="-100" max="100" value="0" step="1"
+              ><input
+                id="crop-y"
+                aria-describedby="position-help"
+                type="range"
+                min="-100"
+                max="100"
+                value="0"
+                step="1"
             /></label>
-            <p class="hint">
+            <p id="position-help" class="sr-only">
               0% centers the artwork. −100% and +100% are the available movement extremes, not
               percentages of image pixels.
             </p>
             <button id="reset-transform" type="button" class="text-button">
-              Reset position, zoom & rotation
+              Reset adjustments
             </button>
+            <label class="color-label" id="letterbox-control" hidden
+              >Letterbox color<input id="background" type="color" value="#f1f3f5"
+            /></label>
           </fieldset>
-          <label class="color-label"
-            >Letterbox color<input id="background" type="color" value="#f1f3f5"
-          /></label>
         </form>
       </section>
     </main>

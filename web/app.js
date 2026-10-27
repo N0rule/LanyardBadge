@@ -88,7 +88,15 @@
       s.dirty = true;
       s.uploadedId = null;
     }
+    actions();
     schedule();
+  }
+  function actions() {
+    $('save-card').disabled = busy || !connected || (!states.has(card().id) && !card().image);
+    $('show-card').disabled = busy || !connected || !card().image || changed;
+    $('new-card').disabled = busy || deck.cards.length >= 10;
+    $('move-up').disabled = busy || selected === 0;
+    $('move-down').disabled = busy || selected === deck.cards.length - 1;
   }
   function progress(label, percent) {
     $('upload-state').hidden = false;
@@ -112,11 +120,18 @@
     ])
       $(id).disabled = value;
     $('device-open').disabled = value || !connected;
-    $('show-card').disabled = value || !connected;
+    actions();
   }
   function sync() {
     const s = states.get(card().id);
     $('crop-controls').disabled = !s;
+    $('crop-controls').hidden = !s;
+    $('letterbox-control').hidden = !s || s.fit !== 'contain';
+    $('artwork-action').textContent = s ? 'Replace artwork' : 'Choose artwork';
+    $('artwork-status').textContent = s ? 'Choose a different file' : 'PNG, JPEG, WebP or BMP';
+    $('preview-help').textContent = s ? 'Drag artwork to position it.' : 'Choose artwork to begin.';
+    canvas.classList.toggle('has-artwork', !!s);
+    actions();
     if (!s) return;
     $('fit').value = s.fit;
     $('zoom').value = Math.round(s.zoom * 100);
@@ -142,6 +157,8 @@
     context.fillStyle = s ? hex(c.background) : '#f1f3f5';
     context.fillRect(0, 0, 240, 320);
     if (s) BadgeArtwork.draw(context, s.image, s, hex(c.background));
+    const thumb = $('card-list').querySelector(`[data-card-id="${c.id}"] .card-thumbnail`);
+    if (thumb) thumb.src = thumbnail(c);
     if (c.mode !== 'artwork') {
       // Legacy layouts remain untouched in storage and on device; preview says so explicitly.
       context.fillStyle = '#000c';
@@ -151,6 +168,20 @@
       context.fillText('Legacy card', 16, 269);
       context.fillText('Original layout on your badge', 16, 292);
     }
+  }
+  const thumbCanvas = document.createElement('canvas');
+  thumbCanvas.width = 36;
+  thumbCanvas.height = 48;
+  function thumbnail(c) {
+    const ctx = thumbCanvas.getContext('2d'),
+      state = states.get(c.id);
+    ctx.save();
+    ctx.scale(36 / 240, 48 / 320);
+    ctx.fillStyle = '#f1f3f5';
+    ctx.fillRect(0, 0, 240, 320);
+    if (state) BadgeArtwork.draw(ctx, state.image, state, hex(c.background));
+    ctx.restore();
+    return thumbCanvas.toDataURL();
   }
   async function imageFor(c) {
     if (!c.image || states.has(c.id) || !connected) return;
@@ -182,15 +213,24 @@
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'gallery-card';
+      b.dataset.cardId = c.id;
       b.setAttribute('aria-pressed', String(i === selected));
       const name = document.createElement('span');
       name.textContent = c.title;
-      b.append(name);
-      if (c.id === status.activeCard) {
-        const small = document.createElement('small');
-        small.textContent = 'On your badge';
-        b.append(small);
-      }
+      const thumb = document.createElement('img'),
+        text = document.createElement('span');
+      thumb.className = 'card-thumbnail';
+      thumb.alt = '';
+      thumb.width = 36;
+      thumb.height = 48;
+      thumb.src = thumbnail(c);
+      text.className = 'card-description';
+      text.append(name);
+      const small = document.createElement('small');
+      small.textContent =
+        c.id === status.activeCard ? 'On your badge' : c.image ? 'Saved card' : 'Draft';
+      text.append(small);
+      b.append(thumb, text);
       b.onclick = () => {
         if (busy) return;
         selected = i;
@@ -198,7 +238,7 @@
       };
       $('card-list').append(b);
     });
-    $('new-card').disabled = busy || deck.cards.length >= 10;
+    actions();
   }
   function edit() {
     const c = card();
@@ -308,8 +348,7 @@
     $('device-open').hidden = false;
     $('disconnect-top').hidden = false;
     $('device-open').disabled = false;
-    $('show-card').disabled = false;
-    $('gallery-hint').textContent = 'Your collection stays on the badge.';
+    actions();
     $('pair-dialog').close();
   }
   async function connectBadge(automatic = false) {
@@ -333,7 +372,7 @@
           // while a saved artwork download is active. Reuse its granted device.
           if (
             !transport.device ||
-            error.bluetoothStage === 'pairing' ||
+            (error.bluetoothStage === 'pairing' && transport.device.gatt.connected) ||
             attempt >= 2 ||
             !['NetworkError', 'UnknownError'].includes(error.name)
           )
@@ -416,6 +455,7 @@
   $('image-file').onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    lock(true);
     try {
       if (file.size > 30 * 1024 * 1024) throw Error('Choose artwork smaller than 30 MB.');
       // Decode once; every edit redraws from the original, with no cumulative resampling.
@@ -432,13 +472,25 @@
       card().url = '';
       card().name = '';
       card().description = '';
+      if (card().title === 'My artwork') {
+        const title = file.name
+          .replace(/\.[^.]+$/, '')
+          .replace(/[^\x20-\x7e]/g, '')
+          .trim()
+          .slice(0, 48);
+        if (title) card().title = title;
+      }
+      $('title').value = card().title;
+      $('editing-title').textContent = card().title;
       $('legacy-note').hidden = true;
+      gallery();
       sync();
       dirty(true);
     } catch (err) {
       toast('Could not open artwork. ' + err.message);
     } finally {
       e.target.value = '';
+      lock(false);
     }
   };
   function transform() {

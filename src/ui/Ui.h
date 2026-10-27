@@ -52,6 +52,8 @@ class Ui {
     lv_obj_t *touchDot_ = nullptr;
     lv_obj_t *calibrationHint_ = nullptr;
     lv_obj_t *progress_ = nullptr;
+    lv_obj_t *progressTitle_ = nullptr, *progressValue_ = nullptr;
+    lv_obj_t *progressDetail_ = nullptr, *progressFill_ = nullptr;
     int calibrationStep_ = 0, samples_ = 0;
     int32_t sampleX_ = 0, sampleY_ = 0;
     bool waitingRelease_ = true;
@@ -62,7 +64,9 @@ class Ui {
     uint32_t flushUs_ = 0, flushMax_ = 0, flushPixels_ = 0, flushCount_ = 0;
     uint32_t handlerMax_ = 0, frameUs_ = 0, framePixels_ = 0, frames_ = 0, frameStart_ = 0;
     uint32_t artworkUs_ = 0;
-    int lastProgress_ = -2;
+    UploadPhase uploadPhase_ = UploadPhase::Idle;
+    int uploadPercent_ = 0;
+    uint32_t uploadChangedAt_ = 0;
     bool streaming_ = true, direct_ = false;
     bool pairedOnce_ = false;
     uint32_t renderedTheme_ = 2;
@@ -125,6 +129,6 @@ class Ui {
     void benchmarkMenu();
 #endif
     void orientation();
-    void uploadProgress(int percent);
+    void uploadProgress(UploadPhase phase, int percent = 0);
 };
 } // namespace badge

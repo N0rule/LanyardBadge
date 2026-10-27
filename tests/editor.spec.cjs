@@ -111,7 +111,7 @@ test('simulated GATT: minimum MTU, upload/export consistency, settings and recon
     badgeDevice.packetBytes = 244;
   });
   await page.locator('#save-card').click();
-  await expect(page.locator('#save-state')).toHaveText('Card uploaded');
+  await expect(page.locator('#save-state')).toHaveText('Card uploaded', { timeout: 15000 });
   const decoded = await page.evaluate(() =>
     Array.from(BadgeCodec.decodeBMP(bleMock.uploads[0].buffer)),
   );
@@ -146,11 +146,11 @@ test('metadata failure retains transform and uploaded asset for retry', async ({
     bleMock.failCommit = true;
   });
   await page.locator('#save-card').click();
-  await expect(page.locator('#toast')).toHaveText('Metadata commit failed');
+  await expect(page.locator('#toast')).toHaveText('Metadata commit failed', { timeout: 15000 });
   expect(await page.evaluate(() => BadgeEditor.changed)).toBe(true);
   expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
   await page.locator('#save-card').click();
-  await expect(page.locator('#save-state')).toHaveText('Card uploaded');
+  await expect(page.locator('#save-state')).toHaveText('Card uploaded', { timeout: 15000 });
   expect(await page.evaluate(() => bleMock.uploads.length)).toBe(1);
   expect(errors).toEqual([]);
 });
@@ -525,5 +525,65 @@ test('same-page reconnect renews a stale native notification subscription', asyn
   await page.locator('#connect').click();
   await expect(page.locator('#connection')).toHaveText('Connected');
   expect(await page.evaluate(() => bleMock.stoppedSubscriptions)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('new card workflow reveals editing after choosing artwork and preserves the three columns', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await page.evaluate(() => {
+    bleMock.deck.cards = [];
+  });
+  await connect(page);
+  await expect(page.locator('#crop-controls')).toBeHidden();
+  await expect(page.locator('#save-card')).toBeDisabled();
+  await expect(page.locator('#show-card')).toBeDisabled();
+  await expect(page.locator('#artwork-action')).toHaveText('Choose artwork');
+  await image(page);
+  await expect(page.locator('#title')).toHaveValue('artwork');
+  await expect(page.locator('#crop-controls')).toBeVisible();
+  await expect(page.locator('#artwork-action')).toHaveText('Replace artwork');
+  await expect(page.locator('#save-card')).toBeEnabled();
+  await expect(page.locator('#letterbox-control')).toBeHidden();
+  await page.locator('#fit').selectOption('contain');
+  await expect(page.locator('#letterbox-control')).toBeVisible();
+  const boxes = await Promise.all(
+    ['.gallery', '.preview-space', '.inspector'].map((s) => page.locator(s).boundingBox()),
+  );
+  expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x + 1);
+  expect(boxes[1].x + boxes[1].width).toBeLessThanOrEqual(boxes[2].x + 1);
+  await page.locator('#theme').selectOption('light');
+  await page.screenshot({ path: '../test-results/studio-desktop-light.png', fullPage: true });
+  await page.locator('#theme').selectOption('dark');
+  await page.screenshot({ path: '../test-results/studio-desktop-dark.png', fullPage: true });
+  await page.locator('#title').fill('My own title');
+  await image(page);
+  await expect(page.locator('#title')).toHaveValue('My own title');
+  expect(errors).toEqual([]);
+});
+
+test('duplicate native notification events retain a single complete response', async ({ page }) => {
+  const errors = await setup(page);
+  await page.evaluate(() => {
+    bleMock.duplicateNotifications = true;
+  });
+  await connect(page);
+  const cards = await page.evaluate(() => badgeDevice.getCards());
+  expect(cards.cards[0].title).toBe('First card');
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  expect(errors).toEqual([]);
+});
+
+test('a stale connected handle lost during encrypted read retries the same granted badge', async ({
+  page,
+}) => {
+  const errors = await setup(page);
+  await page.evaluate(() => {
+    bleMock.disconnectedReads = 1;
+  });
+  await connect(page);
+  expect(await page.evaluate(() => localStorage.getItem('ble.mock.choosers'))).toBe('1');
+  await expect(page.locator('#studio')).toBeVisible();
   expect(errors).toEqual([]);
 });

@@ -104,10 +104,10 @@ void Bluetooth::onWrite(NimBLECharacteristic *c, NimBLEConnInfo &) {
         overflow_ = true;
 }
 void Bluetooth::reset() {
+    const bool interruptedCard = uploading_ || api_.pendingCardUpload();
     if (uploading_)
         assets_.abortUpload();
-    if (api_.progress)
-        api_.progress(-1);
+    api_.cancelCardUpload(interruptedCard);
     receiving_ = uploading_ = responding_ = responseHeader_ = authenticated_ = false;
     request_ = response_ = token_ = "";
     responseFile_.close();
@@ -136,11 +136,12 @@ void Bluetooth::answer(int code, const String &body) {
     request_ = "";
 }
 void Bluetooth::fail(int code, const char *message) {
+    const bool cardTransfer = uploading_ || api_.pendingCardUpload();
     if (uploading_)
         assets_.abortUpload();
     uploading_ = false;
-    if (api_.progress)
-        api_.progress(-1);
+    if (cardTransfer && api_.progress)
+        api_.progress(UploadPhase::Failed, 0);
     JsonDocument d;
     d["error"] = message;
     String out;
@@ -226,7 +227,7 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
                 return;
             }
             if (api_.progress)
-                api_.progress(0);
+                api_.progress(UploadPhase::Receiving, 0);
         }
         received_ = 0;
         request_ = "";
@@ -255,7 +256,7 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
         }
         received_ += n - 7;
         if (uploading_ && api_.progress)
-            api_.progress(received_ * 100U / length_);
+            api_.progress(UploadPhase::Receiving, received_ * 100U / length_);
         if (!notify(0, received_))
             overflow_ = true;
     } else if (op == 3) {
@@ -267,12 +268,13 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
             String id, error;
             bool ok = assets_.finishUpload(id, error);
             uploading_ = false;
-            if (api_.progress)
-                api_.progress(-1);
             if (!ok) {
+                if (api_.progress)
+                    api_.progress(UploadPhase::Failed, 0);
                 fail(422, error.c_str());
                 return;
             }
+            api_.cardAssetReady();
             answer(201, String("{\"id\":\"") + id + "\"}");
         } else if (method_ == "GET" && path_.startsWith("/api/image?id=")) {
             String id = path_.substring(14);

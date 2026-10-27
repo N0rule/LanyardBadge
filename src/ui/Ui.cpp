@@ -107,7 +107,7 @@ bool Ui::begin() {
         Point p = u->touch_.point();
         data->point = {p.x, p.y};
         data->state = u->touch_.down() && !u->activity_.asleep() && !u->activity_.consumed() &&
-                              u->page_ != Page::Calibration && !u->ignore_
+                              u->page_ != Page::Calibration && !u->ignore_ && !u->busy_
                           ? LV_INDEV_STATE_PRESSED
                           : LV_INDEV_STATE_RELEASED;
     });
@@ -182,13 +182,20 @@ void Ui::event(lv_event_t *e) {
 void Ui::back() {
     Page target = Page::Menu;
     switch (page_) {
-    case Page::Menu: target = Page::Badge; break;
+    case Page::Menu:
+        target = Page::Badge;
+        break;
     case Page::Advanced:
-    case Page::Info: target = Page::Settings; break;
+    case Page::Info:
+        target = Page::Settings;
+        break;
     case Page::Calibration:
     case Page::Storage:
-    case Page::RePair: target = Page::Advanced; break;
-    default: break;
+    case Page::RePair:
+        target = Page::Advanced;
+        break;
+    default:
+        break;
     }
     page(target);
 }
@@ -382,6 +389,8 @@ void Ui::benchmarkMenu() {
 }
 #endif
 void Ui::diagnostics(JsonDocument &d) const {
+    d["uploadStage"] = uploadPhaseName(uploadPhase_);
+    d["uploadPercent"] = uploadPercent_;
     d["screenAsleep"] = activity_.asleep();
     d["wakeConsumed"] = activity_.consumed();
     d["flushCount"] = flushCount_;
@@ -482,10 +491,12 @@ void Ui::render() {
         return;
     }
     if (page_ == Page::Pairing) {
-        auto *title = label(root, settings_.value.provisioned ? "Connect to editor" : "Lanyard Badge",
-                            16, 22, 208, 28, font(20), ink());
+        auto *title =
+            label(root, settings_.value.provisioned ? "Connect to editor" : "Lanyard Badge", 16, 22,
+                  208, 28, font(20), ink());
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-        auto *hint = label(root, "Scan to connect\nand customize.", 12, 62, 216, 34, font(14), ink());
+        auto *hint =
+            label(root, "Scan to connect\nand customize.", 12, 62, 216, 34, font(14), ink());
         lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
         String url = pairingUrl ? pairingUrl() : String("");
@@ -548,13 +559,15 @@ void Ui::render() {
         return;
     }
     if (page_ == Page::RePair) {
-        label(list, "Forget connected editors? A new code will be shown. Cards and settings stay saved.", 0, 0,
-              208, 90, font(14), ink());
+        label(list,
+              "Forget connected editors? A new code will be shown. Cards and settings stay saved.",
+              0, 0, 208, 90, font(14), ink());
         button(list, "Forget editors", int(Command::RevokePairing));
         return;
     }
     if (page_ == Page::Settings) {
-        button(list, settings_.value.darkMode ? "Theme: dark" : "Theme: light", int(Command::Theme));
+        button(list, settings_.value.darkMode ? "Theme: dark" : "Theme: light",
+               int(Command::Theme));
         button(list, "About this badge", -1 - int(Page::Info));
         button(list, "Advanced", -1 - int(Page::Advanced));
         return;
@@ -660,6 +673,11 @@ void Ui::calibrationTick() {
     dirty_ = true;
 }
 void Ui::tick() {
+    if (busy_ && (uploadPhase_ == UploadPhase::Complete || uploadPhase_ == UploadPhase::Failed) &&
+        millis() - uploadChangedAt_ >= 1200)
+        uploadProgress(UploadPhase::Idle);
+    if (uploadPhase_ == UploadPhase::Saving && millis() - uploadChangedAt_ >= 45000)
+        uploadProgress(UploadPhase::Failed);
     touch_.poll();
     if (ignore_ && !touch_.down())
         ignore_ = false;
@@ -686,7 +704,7 @@ void Ui::tick() {
         else if (command && g == Gesture::Tap)
             command(touch_.point().x < 120 ? Command::Previous : Command::Next, 0);
     }
-    if (dirty_) {
+    if (dirty_ && !busy_) {
         if ((page_ == Page::Display || page_ == Page::Slideshow) && renderedPage_ == page_ &&
             renderedTheme_ == settings_.value.darkMode) {
             dirty_ = false;
@@ -706,39 +724,83 @@ void Ui::pump() {
         }
     }
 }
-void Ui::uploadProgress(int percent) {
-    if (percent == lastProgress_)
+void Ui::uploadProgress(UploadPhase phase, int percent) {
+    percent = std::max(0, std::min(100, percent));
+    if (phase == uploadPhase_ && (phase != UploadPhase::Receiving || percent == uploadPercent_))
         return;
-    lastProgress_ = percent;
-    if (percent < 0) {
-        if (!busy_)
-            return;
+    uploadPhase_ = phase;
+    uploadPercent_ = percent;
+    uploadChangedAt_ = millis();
+    if (phase == UploadPhase::Idle) {
         busy_ = false;
-        if (progress_) {
+        if (progress_)
             lv_obj_delete(progress_);
-            progress_ = nullptr;
-        }
+        progress_ = progressTitle_ = progressValue_ = progressDetail_ = progressFill_ = nullptr;
         invalidate();
         return;
     }
     if (!busy_) {
         busy_ = true;
+        ignore_ = true;
+        gestures_.reset();
         wake();
-        invalidate();
+        lv_display_enable_invalidation(lvDisplay_, true);
     }
+    const uint32_t accent = settings_.value.darkMode ? 0x9ebaff : 0x3659d9;
     if (!progress_) {
-        progress_ = label(lv_layer_top(), "", 0, 294, 240, 26, font(14), 0xffffff);
-        lv_obj_set_style_bg_color(progress_, lv_color_hex(ink()), 0);
+        progress_ = lv_obj_create(lv_layer_top());
+        plain(progress_);
+        lv_obj_set_pos(progress_, 0, 0);
+        lv_obj_set_size(progress_, 240, 320);
+        lv_obj_add_flag(progress_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_bg_color(progress_, lv_color_hex(frost()), 0);
         lv_obj_set_style_bg_opa(progress_, LV_OPA_COVER, 0);
-        lv_obj_set_style_text_align(progress_, LV_TEXT_ALIGN_CENTER, 0);
+        progressTitle_ = label(progress_, "", 12, 52, 216, 30, font(20), ink());
+        progressValue_ = label(progress_, "", 20, 116, 200, 40, font(28), ink());
+        progressDetail_ = label(progress_, "", 24, 216, 192, 50, font(14), ink());
+        lv_label_set_long_mode(progressDetail_, LV_LABEL_LONG_WRAP);
+        for (auto *text : {progressTitle_, progressValue_, progressDetail_})
+            lv_obj_set_style_text_align(text, LV_TEXT_ALIGN_CENTER, 0);
+        auto *track = lv_obj_create(progress_);
+        plain(track);
+        lv_obj_set_pos(track, 28, 182);
+        lv_obj_set_size(track, 184, 8);
+        lv_obj_set_style_bg_color(track, lv_color_hex(selectedColor()), 0);
+        lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(track, 4, 0);
+        progressFill_ = lv_obj_create(track);
+        plain(progressFill_);
+        lv_obj_set_height(progressFill_, 8);
+        lv_obj_set_style_bg_color(progressFill_, lv_color_hex(accent), 0);
+        lv_obj_set_style_bg_opa(progressFill_, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(progressFill_, 4, 0);
     }
-    if (page_ == Page::Calibration)
-        lv_obj_add_flag(progress_, LV_OBJ_FLAG_HIDDEN);
-    else
-        lv_obj_remove_flag(progress_, LV_OBJ_FLAG_HIDDEN);
-    char text[40];
-    snprintf(text, sizeof(text), "Uploading card... %d%%", percent);
-    lv_label_set_text(progress_, text);
+    const char *title = "Uploading card";
+    const char *detail = "Keep your badge nearby.";
+    char value[12];
+    snprintf(value, sizeof(value), "%d%%", percent);
+    if (phase == UploadPhase::Saving) {
+        title = "Saving card";
+        detail = "Saving your artwork.";
+        strcpy(value, "...");
+    } else if (phase == UploadPhase::Complete) {
+        title = "Card uploaded";
+        detail = "Ready to wear.";
+        strcpy(value, LV_SYMBOL_OK);
+    } else if (phase == UploadPhase::Failed) {
+        title = "Upload stopped";
+        detail = "Your saved cards are safe.";
+        strcpy(value, LV_SYMBOL_WARNING);
+    }
+    lv_label_set_text(progressTitle_, title);
+    lv_label_set_text(progressValue_, value);
+    lv_label_set_text(progressDetail_, detail);
+    lv_obj_set_width(progressFill_, phase == UploadPhase::Receiving ? (184 * percent / 100) : 184);
+    lv_obj_set_style_bg_color(progressFill_,
+                              lv_color_hex(phase == UploadPhase::Failed
+                                               ? (settings_.value.darkMode ? 0xff9eae : 0xab2540)
+                                               : accent),
+                              0);
     pump();
 }
 } // namespace badge

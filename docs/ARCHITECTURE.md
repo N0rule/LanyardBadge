@@ -179,3 +179,27 @@ Primary implementation references: [LVGL 9.2 display ownership](https://docs.lvg
 [Web Bluetooth](https://developer.chrome.com/docs/capabilities/bluetooth),
 [ESP Web Tools](https://esphome.github.io/esp-web-tools/), and pinned library sources
 under PlatformIO's dependency directory.
+
+## Upload presentation
+
+The release upload screen is an opaque LVGL top layer using the saved device
+palette. Its objects are allocated once per transfer; integer percentages only
+update the existing label and progress fill. Underlying menu/artwork redraws and
+touch actions pause while this layer owns the display. Inactivity and slideshow
+remain paused until it is dismissed. No framebuffer or animation layer is added.
+
+The API reports Receiving → Saving → Complete. Accepting an asset file is not
+completion: Saving stays visible until the atomic card manifest commit succeeds.
+A failed transfer/commit shows Upload stopped; existing card metadata stays valid.
+A disconnect aborts the temporary asset and shows the failure state. Successful
+and failed results remain for 1.2 seconds before normal rendering resumes. A
+45-second abandoned metadata stage also releases the UI; the BLE packet timeout
+continues to handle interrupted byte transfers separately. Serial status exposes
+`uploadStage` and `uploadPercent` for validation without adding release controls.
+
+The website keeps gallery / badge / editor columns. A fresh draft begins with a
+neutral preview and a file chooser; rotation/crop controls appear once a source
+image exists. The filename supplies a default ASCII title without replacing a
+custom title. Local thumbnails use the same artwork transform as export. Source
+images remain unresampled between edits. File decoding and upload lock navigation
+to keep operations attached to the intended card; failures retain the edit state.
