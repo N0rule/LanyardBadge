@@ -128,6 +128,11 @@ abandoning an artwork response. The reset closes that response, aborts temporary
 uploads, revokes the previous API session and accepts a new random sequence.
 Committed artwork is untouched. Late response acknowledgements are ignored.
 The browser also supports protocol 1 and briefly retries GATT teardown races.
+Each browser session owns cancellable writes and API queues. Disconnect rejects
+those operations; queued requests from the previous session cannot enter the new
+queue or change its sequence. Same-page reconnect explicitly stops/restarts the
+notification subscription, since native BlueZ/Chromium state can otherwise retain
+"notifying" while the peripheral's subscription has been lost.
 
 Advertising carries the complete device name in its primary packet and the
 service UUID in its scan response. Browser filters accept either identity field,

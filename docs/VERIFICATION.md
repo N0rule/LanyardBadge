@@ -26,10 +26,18 @@ uploader. Local application image: 1,668,128 bytes; static RAM: 73,720 bytes.
   rejected over real BLE; the new four-letter code paired and three subsequent
   refreshes reconnected without another chooser/code or manually forgetting the
   OS device. No temporary test pairing agent was used for this check.
-- **Twenty simulated-GATT Chromium tests pass**, including the landing state,
+- **Twenty-three simulated-GATT Chromium tests pass**, including the landing state,
   neutral preview, white light mode, device theme control, bounded reconnect
   retries, interrupted-session isolation and legacy protocol compatibility.
   Host ASan/UBSan, codec, flash-policy and site-packaging checks pass.
+- The exact same-page Forget editors flow passed on real BLE. Its reconnect
+  initially stalled despite a successful encrypted write: the acknowledgement
+  notification never arrived. Explicitly stopping/restarting notifications on
+  same-page reconnect fixed the stale native subscription. The trace then showed
+  the reset acknowledgement and old-credential rejection, with the OS bond,
+  collection revision and settings unchanged. Browser session cancellation also
+  rejects old in-flight/queued operations and replaces their queues; simulated
+  native writes that never settle cannot block or disconnect the new session.
 
 The first desktop reproduction exposed `No agent available` in BlueZ: a running
 daemon alone was insufficient. Earlier headless tests used a temporary agent and
@@ -55,7 +63,9 @@ ignored `backups/noctalia-before-restart/`. No partition changes or erases occur
 Local evidence is under ignored `test-results/`: `release-ux-host.log`,
 `release-ux-browser.log`, `release-ux-upload.log`, `release-ux-theme-reboot.json`,
 `release-ux-native-browser.log`, `release-ux-after-revoke.log` and
-`short-code-browser.json`. Physical touch latency, tearing, phone acceptance and
+`short-code-browser.json`. The final linked-revocation evidence is in
+`release-ux-revoke-trace.log` and `release-ux-revoke-linked.json`.
+Physical touch latency, tearing, phone acceptance and
 browser USB flashing retain the limitations listed in earlier records below.
 
 ## 2.3.1 connection and onboarding correction

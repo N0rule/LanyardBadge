@@ -51,6 +51,11 @@ function installMock() {
     if (!encryptedRead) throw Error('Complete encrypted read before subscribing');
     return tx;
   };
+  tx.stopNotifications = async () => {
+    mock.subscriptionStale = false;
+    mock.stoppedSubscriptions = (mock.stoppedSubscriptions || 0) + 1;
+    return tx;
+  };
   tx.readValue = async () => {
     if (mock.securityFailures > 0) {
       mock.securityFailures--;
@@ -60,6 +65,7 @@ function installMock() {
     return new DataView(Uint8Array.of(mock.protocol || 2, mock.mtu & 255, mock.mtu >> 8).buffer);
   };
   const emit = (op, at, data = []) => {
+    if (mock.subscriptionStale) return;
     const b = new Uint8Array(7 + data.length),
       v = new DataView(b.buffer);
     b[0] = op;
@@ -135,6 +141,7 @@ function installMock() {
     async writeValueWithResponse(bytes) {
       if (gattWriteBusy) throw Error('GATT operation already in progress');
       gattWriteBusy = true;
+      let completedOp = 0;
       try {
         mock.maxPacket = Math.max(mock.maxPacket, bytes.length);
         if (bytes.length > mock.mtu - 3) throw Error('ATT packet too big');
@@ -142,6 +149,7 @@ function installMock() {
           op = v.getUint8(0),
           at = v.getUint32(3, true);
         seq = v.getUint16(1, true);
+        completedOp = op;
         const data = Array.from(bytes.subarray(7));
         if (op === 6) {
           ++replyGeneration;
@@ -182,6 +190,10 @@ function installMock() {
         // Deliver notifications before Chrome's write promise settles.
         await new Promise((resolve) => setTimeout(resolve, 1));
         gattWriteBusy = false;
+        if (completedOp === 3 && mock.stallNextCompletion) {
+          mock.stallNextCompletion = false;
+          await new Promise(() => {});
+        }
       }
     },
   };

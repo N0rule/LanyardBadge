@@ -53,6 +53,7 @@
       this.pending = null;
       this.packetBytes = 20;
       this.session = 0;
+      this.sessionAbort = new AbortController();
     }
     static supported() {
       return !!globalThis.isSecureContext && !!globalThis.navigator?.bluetooth;
@@ -97,12 +98,18 @@
       }
     }
     async open() {
+      this.sessionAbort.abort(Error('Previous Bluetooth session closed.'));
+      this.pending?.reject(Error('Previous Bluetooth session closed.'));
+      this.sessionAbort = new AbortController();
       ++this.session;
+      this.tail = Promise.resolve();
+      this.writeTail = Promise.resolve();
       this.change('connecting');
       const server = await this.device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE);
       this.rx = await service.getCharacteristic(RX);
       this.tx = await service.getCharacteristic(TX);
+      const resubscribing = !!this.notifySource;
       if (this.notifySource && this.notifyListener)
         this.notifySource.removeEventListener('characteristicvaluechanged', this.notifyListener);
       this.notifySource = this.tx;
@@ -133,11 +140,27 @@
       if (hello.byteLength !== 3 || ![1, 2].includes(hello.getUint8(0)))
         throw Error('This badge needs a compatible firmware update.');
       this.packetBytes = Math.min(512, Math.max(20, hello.getUint16(1, true) - 3));
+      if (resubscribing) {
+        // BlueZ/Chromium can retain a "notifying" flag after a peripheral
+        // disconnect even though its CCC subscription was lost. Toggle it off
+        // before starting the replacement subscription.
+        try {
+          await this.tx.stopNotifications();
+        } catch {}
+      }
       await this.tx.startNotifications();
       if (hello.getUint8(0) >= 2) {
         this.sequence = crypto.getRandomValues(new Uint16Array(1))[0];
         this.response = null;
-        await this.acknowledged(6, 0, undefined, 0);
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await this.acknowledged(6, 0, undefined, 0);
+            break;
+          } catch (error) {
+            if (attempt >= 3 || !/operation.*in progress/i.test(error.message)) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+          }
+        }
       }
       this.change('pairing');
     }
@@ -153,6 +176,7 @@
       }
     }
     lost() {
+      this.sessionAbort.abort(Error('Bluetooth disconnected. Your edits are kept.'));
       ++this.session;
       this.change('disconnected');
       this.token = '';
@@ -176,14 +200,29 @@
     write(op, offset, data) {
       const packet = this.frame(op, this.sequence, offset, data),
         rx = this.rx,
-        session = this.session;
+        session = this.session,
+        signal = this.sessionAbort.signal;
       // Notifications can complete a response before the ACK write promise resolves.
       // Serialize ALL writes, including response ACKs, independently of requests.
       const operation = (this.writeTail || Promise.resolve())
         .catch(() => {})
         .then(() => {
           if (session !== this.session) throw Error('Previous Bluetooth session closed.');
-          return rx.writeValueWithResponse(packet);
+          return new Promise((resolve, reject) => {
+            const finish = (callback, value) => {
+              signal.removeEventListener('abort', abort);
+              callback(value);
+            };
+            const abort = () => finish(reject, signal.reason);
+            if (signal.aborted) return abort();
+            signal.addEventListener('abort', abort, { once: true });
+            Promise.resolve()
+              .then(() => rx.writeValueWithResponse(packet))
+              .then(
+                (value) => finish(resolve, value),
+                (error) => finish(reject, error),
+              );
+          });
         });
       this.writeTail = operation;
       return operation;
@@ -221,7 +260,13 @@
     }
     async acknowledged(op, offset, data, expected) {
       const ack = this.wait(0, expected);
-      await Promise.all([this.write(op, offset, data), ack]);
+      const pending = this.pending;
+      try {
+        await Promise.all([this.write(op, offset, data), ack]);
+      } catch (error) {
+        pending.reject(error);
+        throw error;
+      }
     }
     receive(v) {
       if (v.byteLength < 7 || v.getUint16(1, true) !== this.sequence) return;
@@ -277,7 +322,11 @@
       }
     }
     request(path, options = {}) {
-      const operation = this.tail.then(() => this.transfer(path, options));
+      const session = this.session;
+      const operation = this.tail.then(() => {
+        if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+        return this.transfer(path, options);
+      });
       this.tail = operation.catch(() => {});
       return operation;
     }

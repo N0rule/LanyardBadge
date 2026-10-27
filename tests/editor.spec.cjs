@@ -472,3 +472,58 @@ test('an old interrupted download cannot disconnect a replacement connection', a
   expect(result).toEqual({ connected: true, brightness: 65 });
   expect(errors).toEqual([]);
 });
+
+test('disconnect cancels an unsettled native write before reconnecting', async ({ page }) => {
+  const errors = await setup(page);
+  await connect(page);
+  const result = await page.evaluate(async () => {
+    bleMock.stallNextCompletion = true;
+    const old = badgeDevice.getStatus().catch((error) => error.message);
+    while (bleMock.stallNextCompletion) await new Promise((resolve) => setTimeout(resolve, 5));
+    badgeDevice.disconnect();
+    await badgeDevice.reconnect();
+    await badgeDevice.pair(bleMock.password);
+    const oldError = await old;
+    return {
+      connected: badgeDevice.device.gatt.connected,
+      oldRejected: typeof oldError === 'string',
+      status: (await badgeDevice.getStatus()).brightness,
+    };
+  });
+  expect(result).toEqual({ connected: true, oldRejected: true, status: 65 });
+  expect(errors).toEqual([]);
+});
+
+test('queued old requests cannot reuse or renumber a replacement session', async ({ page }) => {
+  const errors = await setup(page);
+  await connect(page);
+  const result = await page.evaluate(async () => {
+    bleMock.replyDelay = 80;
+    const first = badgeDevice.getStatus().catch((error) => error.message);
+    const queued = badgeDevice.getCards().catch((error) => error.message);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    badgeDevice.disconnect();
+    bleMock.replyDelay = 0;
+    await badgeDevice.reconnect();
+    await badgeDevice.pair(bleMock.password);
+    return {
+      rejected: (await Promise.all([first, queued])).every((value) => typeof value === 'string'),
+      cards: (await badgeDevice.getCards()).cards.length,
+    };
+  });
+  expect(result).toEqual({ rejected: true, cards: 1 });
+  expect(errors).toEqual([]);
+});
+
+test('same-page reconnect renews a stale native notification subscription', async ({ page }) => {
+  const errors = await setup(page);
+  await connect(page);
+  await page.evaluate(() => {
+    badgeDevice.disconnect();
+    bleMock.subscriptionStale = true;
+  });
+  await page.locator('#connect').click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  expect(await page.evaluate(() => bleMock.stoppedSubscriptions)).toBe(1);
+  expect(errors).toEqual([]);
+});
