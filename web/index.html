@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f3f6fc" />
+    <title>Lanyard · Badge studio</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script defer src="/qrcode.js"></script>
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Lanyard badge studio"
+        ><span class="brand-icon" aria-hidden="true"></span
+        ><span>Lanyard<span class="brand-sub">Badge studio</span></span></a
+      >
+      <div class="top-actions">
+        <span id="connection" role="status">Connecting</span
+        ><button id="show-badge" class="secondary">Show badge</button
+        ><button id="device-open" class="quiet">Device settings</button>
+      </div>
+    </header>
+    <section id="connection-guide" class="connection-guide" hidden aria-label="Owner connection">
+      <div>
+        <strong id="connection-title">Keep your phone online</strong>
+        <p id="connection-help">
+          Connect the badge to your Wi-Fi or phone hotspot once. Then edit without leaving your
+          internet connection.
+        </p>
+        <a id="network-link" hidden target="_blank" rel="noopener">Open editor on your network</a>
+      </div>
+      <button id="connect-network" class="secondary">Connect my Wi-Fi / hotspot</button>
+    </section>
+    <main class="studio" id="studio" inert>
+      <aside class="gallery">
+        <div class="section-head">
+          <h2>Your cards</h2>
+          <span id="card-count">0 / 10</span>
+        </div>
+        <p class="hint">A small collection. Always with you.</p>
+        <div id="card-list" class="card-list"></div>
+        <button id="new-card" class="secondary full">+ New card</button>
+        <div class="gallery-tools">
+          <button id="move-up" class="quiet" aria-label="Move card earlier">Move up</button
+          ><button id="move-down" class="quiet" aria-label="Move card later">Move down</button
+          ><button id="delete-card" class="danger">Delete</button>
+        </div>
+        <div class="storage">
+          <span id="storage-label">Reading storage</span
+          ><progress id="storage-meter" max="100" value="0">0%</progress
+          ><button id="reload" class="text-button">Reload from badge</button>
+        </div>
+      </aside>
+      <section class="preview-space" aria-labelledby="preview-heading">
+        <div class="preview-heading">
+          <h1 id="preview-heading">Make it yours.</h1>
+          <p>Choose a card. Give it a little personality.</p>
+        </div>
+        <div class="badge-object">
+          <div class="lanyard-slot" aria-hidden="true"></div>
+          <canvas id="preview" width="240" height="320" aria-label="Portrait badge preview"
+            >A 240 by 320 pixel preview of your badge.</canvas
+          >
+          <div class="badge-chin" aria-hidden="true"></div>
+        </div>
+        <div class="preview-caption">
+          <span id="save-state">All changes saved</span><span>240 × 320</span>
+        </div>
+        <div class="publish-actions">
+          <button id="save-card" class="primary">Save to badge</button
+          ><button id="show-card" class="secondary">Show this card</button>
+        </div>
+        <p class="preview-note">
+          Swipe on your badge to switch cards.<br />Hold the screen to open its menu.
+        </p>
+      </section>
+      <section class="inspector" aria-label="Card controls">
+        <div class="section-head">
+          <h2>Edit card</h2>
+          <span id="editing-title"></span>
+        </div>
+        <form id="card-form">
+          <label>Card title<input id="title" maxlength="48" required autocomplete="off" /></label
+          ><label
+            >Layout<select id="mode">
+              <option value="profile">Profile badge</option>
+              <option value="artwork">Full-screen artwork</option>
+              <option value="custom">Custom card</option>
+            </select></label
+          >
+          <fieldset>
+            <legend>Artwork</legend>
+            <label class="file-drop" for="image-file"
+              ><span>Choose an image</span><small>Photo, illustration, or something you made</small
+              ><input
+                type="file"
+                id="image-file"
+                accept="image/jpeg,image/png,image/webp,image/bmp"
+            /></label>
+            <div id="crop-controls" hidden>
+              <div class="form-row">
+                <label
+                  >Fit<select id="fit">
+                    <option value="cover">Fill & crop</option>
+                    <option value="contain">Fit whole image</option>
+                  </select></label
+                ><button id="remove-image" type="button" class="quiet">Remove image</button>
+              </div>
+              <label>Zoom<input type="range" id="zoom" min="100" max="300" value="100" /></label
+              ><label
+                >Horizontal position<input
+                  type="range"
+                  id="crop-x"
+                  min="-100"
+                  max="100"
+                  value="0" /></label
+              ><label
+                >Vertical position<input type="range" id="crop-y" min="-100" max="100" value="0"
+              /></label>
+            </div>
+          </fieldset>
+          <div id="profile-fields">
+            <label>Name<input id="name" maxlength="48" autocomplete="off" /></label
+            ><label>About you<textarea id="description" maxlength="96" rows="3"></textarea></label>
+          </div>
+          <div id="link-field">
+            <label
+              >QR link<input
+                id="url"
+                type="url"
+                maxlength="100"
+                placeholder="https://your.site"
+                inputmode="url"
+            /></label>
+            <p class="hint">Up to 100 characters. Keep links short for easier scanning.</p>
+          </div>
+          <fieldset>
+            <legend>Colors</legend>
+            <div class="color-row">
+              <label>Background<input id="background" type="color" /></label
+              ><label>Text<input id="foreground" type="color" /></label
+              ><label>Accent<input id="accent" type="color" /></label>
+            </div>
+          </fieldset>
+          <div id="custom-fields" hidden>
+            <fieldset>
+              <legend>Text elements</legend>
+              <div id="texts"></div>
+              <button id="add-text" type="button" class="secondary full">+ Add text</button>
+            </fieldset>
+            <fieldset>
+              <legend>Graphic elements</legend>
+              <div id="shapes"></div>
+              <button id="add-shape" type="button" class="secondary full">+ Add shape</button>
+            </fieldset>
+            <p class="hint">
+              Tap a text or graphic element in the preview and drag to position it.
+            </p>
+          </div>
+          <p class="hint">Text currently supports English letters, numbers and punctuation.</p>
+        </form>
+      </section>
+    </main>
+    <dialog id="pair-dialog" class="pair-dialog">
+      <form id="pair-form">
+        <div class="brand-icon" aria-hidden="true"></div>
+        <h1>Your badge,<br />your space.</h1>
+        <p>Enter the pairing password shown on your badge’s “Connect to edit” screen.</p>
+        <label
+          >Pairing password<input
+            id="pair-password"
+            type="password"
+            autocomplete="current-password"
+            required
+            maxlength="64" /></label
+        ><button class="primary full" type="submit">Connect to badge</button>
+        <p id="pair-error" class="error" role="alert"></p>
+        <p class="hint">No account. No cloud. Just your badge.</p>
+      </form>
+    </dialog>
+    <dialog id="device-dialog" class="device-dialog">
+      <div class="section-head">
+        <h2>Device settings</h2>
+        <button id="device-close" class="quiet" aria-label="Close settings">Close</button>
+      </div>
+      <form id="settings-form">
+        <label
+          >Brightness <output id="brightness-output">65%</output
+          ><input id="brightness" type="range" min="5" max="100" value="65" /></label
+        ><label class="check"
+          ><input type="checkbox" id="autoplay" /> Automatically switch cards</label
+        ><label
+          >Switch interval (seconds)<input
+            id="interval"
+            type="number"
+            min="5"
+            max="3600"
+            value="15"
+            required /></label
+        ><label>Default card<select id="default-card"></select></label
+        ><label
+          >Portrait orientation<select id="rotation">
+            <option value="0">Portrait 0°</option>
+            <option value="2">Portrait 180°</option>
+          </select></label
+        ><button class="primary full">Save device settings</button>
+      </form>
+      <button id="calibrate-touch" class="secondary full">Calibrate touchscreen</button>
+      <p class="hint">Then touch and lift at each crosshair on your badge.</p>
+      <details id="network-details">
+        <summary>Wi-Fi network</summary>
+        <p class="hint">
+          Use your home Wi-Fi or your phone’s hotspot. Your phone keeps internet access, and the
+          badge reconnects automatically. Use a 2.4 GHz network.
+        </p>
+        <form id="network-form">
+          <label>Network name<input id="wifi-ssid" maxlength="32" autocomplete="off" /></label
+          ><label
+            >Wi-Fi password<input
+              id="wifi-password"
+              type="password"
+              maxlength="63"
+              autocomplete="new-password" /></label
+          ><button class="secondary full">Save network</button>
+          <p id="network-status" class="hint" role="status"></p>
+          <p class="hint">
+            For a phone hotspot: save its name and password here, leave the badge Wi-Fi, then enable
+            your hotspot. Hold the badge screen and choose “Connect to editor” to scan its new
+            address. On iPhone, enable “Maximize Compatibility”.
+          </p>
+          <p class="hint">Leave the name empty to forget the saved network.</p>
+        </form>
+      </details>
+      <details>
+        <summary>Storage & diagnostics</summary>
+        <pre id="system-info"></pre>
+        <button id="collect-garbage" class="secondary full">Clean unused backgrounds</button>
+        <p class="hint">
+          Touch calibration and the color test are in the badge’s Device information menu.
+        </p>
+      </details>
+      <button id="end-session" class="quiet full">Sign out & close badge hotspot</button>
+    </dialog>
+    <div id="toast" class="toast" role="status" hidden></div>
+  </body>
+</html>
