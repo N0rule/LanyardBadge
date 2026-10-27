@@ -1,253 +1,192 @@
 # Verification record — 2026-10-27
 
-Target: the connected `/dev/ttyUSB0` ESP32-D0WD-V3 rev 3.1, 4 MB flash,
-zero PSRAM, ST7789 portrait 240 × 320. Source inspected after fetching origin;
-starting commit `042c684`, branch `rewrite/lanyardbadge-2`. The live device ran
-2.1.0 while source already contained an incomplete 2.2.0 BLE rewrite.
+## Released result
 
-## Data preservation
+Implementation release: `6e94619e959a` on `rewrite/lanyardbadge-2`.
+[CI build, tests and Pages deployment passed](https://github.com/N0rule/LanyardBadge/actions/runs/40491527790).
 
-Original backup `backups/original-4mb.bin` remains untouched. Its recorded SHA-256
-is `956a9c43930050d855d5ebbd9b26c6c5f7d8d5c48cdcb8e93be99d98e832a3c4`.
+The requested [GitHub Pages URL](https://n0rule.github.io/LanyardBadge/) redirects
+to the account's existing [HTTPS custom domain](https://n0rule.is-a.dev/LanyardBadge/).
+Both the live application and published firmware manifests were checked. Script,
+stylesheet and installer-manifest URLs include the release revision to avoid
+mixing cached transport code with a fresh page.
 
-A new full 4,194,304-byte snapshot was taken before this work:
-`backups/before-2.0-spec-4mb.bin`, SHA-256
-`24de5de01f381841d0f054dc64458d340f5cd9452a3ec6ce15ee330022b53061`.
-Backups and private test credentials remain Git-ignored.
+| Item | Verified result |
+| --- | --- |
+| Hardware | ESP32-D0WD-V3 rev 3.1, 4 MB flash, zero PSRAM |
+| Display configuration | ST7789, portrait 240 × 320, rotation 0, 40 MHz SPI |
+| Firmware | 2.3.0, CYD2USB environment |
+| Published application | 1,661,168 / 2,097,152 bytes; 435,984 bytes headroom |
+| Static RAM | 73,688 / 327,680 bytes (22.5%) |
+| Published SHA-256 | `c7195b3916cde9a56e290e4443b7858211da6a9ba0515cb512e17f57872f2fb1` |
+| Final collection | Two original cards; selected `ee53bab5`; revision 21 |
+| Current saved settings | Brightness 5%, timeout 600s, slideshow on / 60s, rotation 0, saved calibration |
 
-The live partition table was read from that snapshot: factory 0x10000/0x200000,
-assets 0x210000/0x1f0000. Source initially specified factory 0x280000 and assets
-0x290000, which would have overwritten user artwork. The original live layout
-was restored in source before any upload. Removing HTTP/Wi-Fi and embedded web
-assets reduced firmware enough to fit safely. No filesystem image, NVS image,
-full-flash erase or partition relocation was performed.
+That **exact published application** was downloaded, checked against published
+SHA256SUMS, flashed at 0x10000 with esptool, hash-verified and booted on the device.
+The local build differs in embedded source paths, build time and associated
+ELF/image hashes; cross-host byte-identical builds are not claimed.
 
-The first rewritten boot retained both cards, revision 12, selected card
-`ee53bab5`, brightness 5%, slideshow enabled/60 seconds, rotation 0 and the saved
-four-corner calibration. Settings migrated to schema 3 while the v2 blob stayed
-intact. Repeated normal reboots retained those values.
+The released firmware then passed a real public-site browser test: an intentionally
+stale QR key was rejected, manual pairing succeeded, the real collection was read,
+and the fragment was removed from browser history. The collection's rollback
+generation was normalized to the original two cards and two unreferenced test
+artwork files were collected. Current and backup manifests contain no test cards.
 
-## Measured performance
+## Measured firmware performance
 
-Baseline live 2.1.0 serial screen/card commands took 493–889 ms including UART
-command parsing and a full status JSON response. These numbers are not touch
-latency or a frame rate.
+The live baseline was 2.1.0; the starting source at `042c684` already contained an
+unfinished 2.2.0 BLE rewrite. Origin was fetched before inspection.
 
-A controlled on-device benchmark then rendered the same two saved artwork cards
-through both paths in the same instrumented binary, ten draws per path:
+A controlled instrumented build rendered the same two saved artwork cards through
+both paths, ten alternating draws per path:
 
-| Path | Mean complete redraw | Maximum | Heap before/after |
+| Path | Mean complete redraw | Maximum | Heap before / after |
 | --- | ---: | ---: | ---: |
-| LVGL BMP decoder + synchronous SPI | 747.734 ms | 804.889 ms | 109684 / 109684 |
-| Direct validated BMP stripe stream | 188.515 ms | 192.260 ms | 109684 / 109684 |
+| LVGL BMP decoder + SPI | 747.734 ms | 804.889 ms | 109684 / 109684 |
+| Validated BMP stripe streaming | 188.515 ms | 192.260 ms | 109684 / 109684 |
 
-The streaming path was approximately 4.0× faster in the final run (3.5× in the earlier run). Normal single-card loads outside
-the alternating benchmark measured around 159–161 ms. LVGL's ten benchmark draws
-spent 526.443 ms total in SPI flush callbacks; most of its remaining time was
-outside SPI transfer, supporting bypassing row-decoder/filesystem overhead.
-The streaming benchmark includes filesystem reads, row reversal, SPI and object
-cleanup, not merely transfer time.
+Streaming was approximately **4× faster** in this run (3.5× in an earlier run).
+These timings include filesystem reads, row reversal, drawing and object cleanup,
+not just SPI transfer. Ordinary single-card loads measured about 159–161 ms;
+the released image's startup load measured 160.754 ms.
 
-A 50-switch hardware run kept free heap at 108592 bytes and largest free block
-at 61428 before/after. Minimum heap reached 99472; loop stack low-water mark was
-2032 bytes after rendering tests. A two-second idle check observed no additional
-LVGL flushes for unchanged artwork. Serial sleep/wake tests reported physical PWM
-sleep state without altering the saved brightness. Restart retained settings and
-selection. These checks establish software state; backlight darkness and touch
-consumption need physical observation.
+- Full Display menu construction/redraw: **202.675 ms**.
+- Ten in-place brightness label updates: mean **36.038 ms**, maximum 36.079 ms.
+- Fifty card switches: free heap stayed at 108592 bytes and largest block at
+  61428 bytes. Minimum heap reached 99472; loop stack low-water mark was 2032 bytes.
+- A two-second static-artwork check observed no additional LVGL flushes.
+- The published image booted with 108632 bytes free heap, 61428-byte largest block,
+  104300-byte minimum heap and 5060 bytes of loop stack remaining at that point.
 
-A full Display menu construction/redraw measured 202.675 ms. Ten in-place
-brightness label updates averaged 36.038 ms (maximum 36.079 ms). These are
-software draw measurements, not physical touch latency. Full-page entry remains
-slower than the approximate 100 ms goal; ordinary setting changes are within it.
+These are software timings, **not measured physical touch latency**. Full-page
+menu entry remains above the approximate 100 ms goal; ordinary setting updates
+are below it. Original serial command/status round trips took 493–889 ms and
+included UART/JSON overhead, so they are not frame-rate measurements.
 
-No TE signal is present in the verified pin mapping. The implementation does not
-claim tear-free output. Static redraws are eliminated, menus avoid transitions,
-and artwork scanout is substantially shorter. Physical tearing and actual touch
-response remain observer checks.
+There is no TE signal in the verified pin mapping. Synchronous writes and a
+single 15,360-byte stripe buffer keep ownership explicit, without a full-screen
+framebuffer or animations. Software double buffering is not described as a
+tear-free guarantee. Physical tearing remains an observer check.
 
-## Build and automated checks
+## Real Bluetooth and public browser tests
 
-- CYD2USB firmware compiles and has been flashed repeatedly; esptool verified
-  written hashes. The final padded size and SHA-256 are recorded below.
-- Portable C++ tests pass under ASan/UBSan: calibration, clamping, gestures,
-  strict BMP validation, ID/CRC checks, reverse-row caching, timeout choices,
+The owner enabled the initially stopped host Bluetooth service. Real tests used
+the host adapter, BlueZ and the connected ESP32; this was not a simulated radio.
+
+| Test | Observed result |
+| --- | --- |
+| Bleak client, initial complete asset upload | 38.562 seconds, MTU 517, upload/download byte comparison passed |
+| Bleak end-to-end card transaction before interval optimization | 43.388 seconds; metadata commit, selection and restoration passed |
+| Bleak after requesting 7.5–15 ms events | Negotiated 15 ms; complete upload 17.730 seconds |
+| Public Chromium editor before interval optimization | Upload/commit/select 44.924 seconds |
+| Public Chromium editor with faster firmware | Upload/commit/select 24.248 seconds; original collection restored |
+| Latest released image + public Chromium | Stale-key rejection, manual re-pair, real collection reads and cleanup passed |
+
+Complete artwork transfers contained 153666 bytes. Real-client tests compared
+uploaded and downloaded bytes, intentionally interrupted another upload,
+reconnected, re-paired and confirmed the committed collection survived. Temporary
+card commits/restores advanced metadata from revision 12 to 20; final cleanup
+advanced it to 21 without changing original card content. Timing depends on the
+central, RF environment and negotiated interval; these are not universal rates.
+
+Real testing found and fixed:
+
+- A missing advertising name: enable scan response before adding the device name.
+- Overlapping browser GATT write promises: serialize response ACKs separately from
+  application requests, and attach rejection handlers immediately.
+- A 15-second total download timeout: refresh it on received chunks so it measures
+  inactivity rather than total card-transfer duration.
+- Re-pairing and expired-session UX: keep original artwork/edits and expose a
+  readable device key; API 401 failures disconnect clearly before retry.
+
+Earlier host `bluetoothd` SIGSEGV crashes were recorded by systemd-coredump during
+pairing experiments. Clearing this badge's stale host pairing record, retaining
+BLE bonds and starting security on connect were followed by successful tests.
+Linux configurations still need working Web Bluetooth support, a Bluetooth daemon
+and a pairing agent; success is not claimed for every Linux or phone browser.
+
+## Automated checks
+
+- Portable C++ tests pass under ASan/UBSan: affine calibration, rotation/clamping,
+  gestures, strict BMP validation, IDs, CRC, reverse-row caching, timeout choices,
   busy protection, wraparound and complete wake-press consumption.
-- Node codec/transform tests pass: RGB565 channel error, row order, malformed
-  image handling, fit/fill, four-rotation identity and crop bounds across rotation,
-  zoom and position extremes.
-- Eight Chromium tests pass using a **simulated GATT peripheral**: secure-origin
-  subpath assets, themes and artwork color preservation, theme persistence/system
-  changes, rotation/reset/precision, mouse drag, trusted CDP touch drag without
-  page scrolling, keyboard controls, symmetric frame, upload/export pixel bounds,
-  metadata failure retry without reupload, settings, reconnect, unsupported
-  browser guidance and deleting the final saved card.
-- Installer packaging checks validate app/partition bounds, manifest part offsets,
-  published files and SHA-256 hashes. ESP Web Tools is pinned and vendored; update
-  manifests contain only the application. A full browser USB flash has not yet
-  been exercised.
+- Node codec/transform tests pass: RGB565 channel error bounds, row order, malformed
+  image handling, fit/fill, four-rotation identity and movement bounds.
+- **Ten Chromium tests with simulated GATT** pass: themes and persistence/system
+  changes, artwork color preservation, responsive sizing, symmetric frame,
+  rotation/reset/precision, mouse and trusted CDP touch dragging, keyboard controls,
+  export/preview consistency, delayed write completion, long response inactivity,
+  failed-commit retry, settings/reconnect, final-card deletion, stale-key re-pair
+  and expired-session recovery without losing edits. These do not establish RF.
+- Flash-policy tests reject OTA-stub, NVS/PHY/filesystem and boundary-crossing
+  writes, unaligned addresses and filesystem relocation.
+- Packaging checks validate published files, SHA-256 sums, compiled partition
+  layout and fresh/update manifest offsets. CI runs these checks before deployment.
 
-## Real Bluetooth evidence
+## Data preservation and uploader correction
 
-The host Bluetooth service was initially stopped. The owner enabled it. BlueZ
-5.87 and the actual host adapter discovered the badge at approximately −39 dBm.
-This found and fixed an advertising bug: the 128-bit service UUID and device name
-did not fit a single advertising packet; the name now uses a scan response.
+The two pre-work snapshots remain Git-ignored and unchanged. A third snapshot
+captures the released firmware and restored collection:
 
-A real Bleak/BlueZ client established encrypted GATT, authenticated using the
-per-device key, read status/cards, downloaded a saved artwork, uploaded all
-153666 bytes, downloaded the new asset, and compared every byte successfully.
-Upload time: **38.562 seconds**, MTU 517. Existing card metadata stayed at revision
-12 and the two-card collection remained intact. The unreferenced test image was
-collected and the connection closed. Heap was 107804 before and 106076 immediately
-after the transfer; these snapshots include active BLE response allocations and
-are not a leak test. Log: ignored `test-results/ble-hardware.json`.
+| Backup | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `backups/original-4mb.bin` | 4194304 | `956a9c43930050d855d5ebbd9b26c6c5f7d8d5c48cdcb8e93be99d98e832a3c4` |
+| `backups/before-2.0-spec-4mb.bin` | 4194304 | `24de5de01f381841d0f054dc64458d340f5cd9452a3ec6ce15ee330022b53061` |
+| `backups/release-6e94619-4mb.bin` | 4194304 | `128b76ba3db7790b58d008885fcdd105b82528af99e5c27621d612defa6e83f2` |
 
-Real Chromium's device chooser also discovered `Badge-287E`. Further real browser
-and reconnect testing exposed host `bluetoothd` SIGSEGV crashes (recorded by
-systemd-coredump); simulated browser success does not establish real browser
-connection success. A subsequent firmware adjustment retains BLE bonding keys
-and starts link security on connect to improve reconnect behavior. Its final
-validation is recorded below; this host limitation must not be hidden.
+The additional snapshot initially could not start because the CH341 USB link
+stopped enumerating (`-71` control errors and `-110` descriptor timeouts). After
+the owner reseated the cable, `/dev/ttyUSB0` returned and a complete read succeeded.
+Its application bytes exactly match the published binary. The new snapshot has
+mode 0600 and remains local because it contains device credentials and user data.
+Afterward, serial diagnostics confirmed a normal 2.3.0 boot with two cards,
+revision 21 and the same saved brightness, timeout, slideshow and calibration.
 
-## Remaining acceptance
+The pre-work flash table showed factory 0x10000/0x200000 and assets
+0x210000/0x1f0000. Starting source instead placed assets at 0x290000; uploading it
+would overwrite artwork. Removing HTTP/Wi-Fi and embedded web/sample data let
+firmware fit the existing 2 MiB application slot. No filesystem image, full-flash
+erase or partition relocation was performed. Version-2 settings remain in NVS;
+schema 3 uses a separate key. Original active artwork and calibration were retained.
 
-No new physical visual confirmation has been received in this session. Upright
-orientation was confirmed by the owner in earlier development, not re-observed
-here. Colors, QR scanning, all-corner default touch accuracy, perceived menu
-latency, physical backlight-off, waking-touch consumption and tearing remain in
-[the physical checklist](HARDWARE_CHECKLIST.md). Actual first boot on a completely
-blank device, deliberate power cuts, corrupt-storage recovery and an extended
-radio/heap soak remain unverified. Existing data was preserved rather than erased
-to manufacture a fresh-install test.
+A later audit found Arduino's stock PlatformIO uploader also included
+`boot_app0.bin` at 0xe000 for 8192 bytes, overlapping the last NVS sector and PHY
+partition in this factory-only layout. The extra image should have been checked
+before the first upload. Earlier uploads retained that stock recipe; no validated
+card/settings loss was observed and full backups exist, but it was unsafe.
 
-## Final firmware and end-to-end radio run
+`scripts/check_firmware.py` now strips that stub before upload, validates
+sector-rounded write ranges and checks the compiled table. Guarded hardware
+uploads contain only bootloader at 0x1000, partitions at 0x8000 and application at
+0x10000. USB update manifests contain only the application. They never included
+the OTA stub. Garbage collection preserves current and backup manifest references;
+full pre-work snapshots also retain the older filesystem history.
 
-Final local CYD2USB binary: **1662080 bytes** of 2097152 (435072 bytes headroom).
-SHA-256: `707340401f592e4f515f461a7b2f7bfb590ac047f5b84b1abb513ddbe1edac9d`.
-Static RAM is 73704 bytes (22.5%). Final firmware was flashed and hash-verified.
+## Limits and remaining physical acceptance
 
-After retaining BLE bonds and clearing this badge's stale host pairing record,
-a fresh real Bleak run passed pairing, full upload/download comparison, an atomic
-temporary-card metadata commit, selection, restoration of the original collection
-and selection, an intentionally disconnected partial upload, reconnect, re-pair
-and confirmation that the committed collection survived. The complete upload took
-43.388 seconds. Metadata revision advanced from 12 to 14 during the test/restore;
-the original two cards were retained. Minimum heap during this test reached 92028
-bytes. See ignored `test-results/ble-end-to-end.json`.
+- **Browser USB flashing is unverified.** The pinned, vendored ESP Web Tools loaded
+  and displayed real port-selection handling, but this headless runner could not
+  select the physical Web Serial port. Firmware was flashed using PlatformIO and
+  esptool instead. Manifest/image validation passed.
+- No new physical visual confirmation was supplied. Earlier development recorded
+  owner-confirmed upright rotation 0; this session does not claim visual rechecks
+  of colors, QR scanning, default all-corner touch accuracy, gestures, brightness,
+  true backlight-off, wake-touch consumption or tearing.
+- Serial sleep/wake and restart state checks passed; they cannot observe the
+  physical backlight or a finger touching the screen.
+- Fresh boot on a completely blank device, NVS-failure injection, deliberate power
+  cuts/corrupt-storage recovery, extended soak and real phone acceptance remain
+  unverified. Populated storage was preserved rather than erased for these tests.
+- NVS-open failure generates RAM-only recovery credentials, and missing pairing
+  keys fail closed. This path was reviewed/compiled, not fault-injected.
+- ILI9341 compatibility remains a separate build target; only CYD2USB/ST7789 was
+  connected in this session.
 
-Real Chromium then connected successfully through the actual editor's chooser,
-GATT discovery, encrypted pairing, authentication and collection reads, reporting
-two cards at revision 14. This was a real radio connection, not the GATT simulation.
-Earlier BlueZ daemon crashes remain relevant: Linux configurations may need their
-stale badge pairing removed and a functioning desktop pairing agent.
-
-GitHub Actions build and Pages deploy passed for commit `856b38a`. The requested
-`https://n0rule.github.io/LanyardBadge/` returns a 301 to this account's existing
-custom domain `https://n0rule.is-a.dev/LanyardBadge/`, which returns HTTP 200.
-HTTPS enforcement is enabled. Published `firmware/update.json` contains only the
-application at offset 65536 and the per-commit firmware path.
-
-## Real Chromium upload and final transport fixes
-
-The real editor test discovered two browser-specific failures that the original
-simulation did not model: overlapping GATT ACK/write promises, and a 15-second
-total-response timeout that interrupted a progressing full-card download. All
-GATT writes now have their own serialized queue, and the response timeout resets
-on received chunks. Promise handlers are attached immediately so stalled writes
-cannot leave unhandled timeout rejections. The simulated peripheral now delivers
-notifications before delayed write completion and rejects overlapping writes;
-an accelerated-clock test exercises a response lasting over 15 seconds.
-
-The corrected transport was served into the already published editor for the
-hardware test. Real Chromium then loaded the collection, uploaded the supplied
-`ExampleImage.png` through the editor, committed its metadata, selected the new
-card, and restored the original two cards and selection. Upload/commit/select
-completed in **44.924 seconds**. Revision advanced from 14 to 16 through the test
-and restoration. The corrected transport is published by the subsequent workflow;
-its served bytes are checked against the tested source. Screenshot and report:
-ignored `test-results/editor-desktop-real.png` and `browser-upload-real.json`.
-
-The QR now has a separate white parent with a guaranteed 16-pixel quiet margin
-around a 164-pixel code, rather than a border that could overlap its modules.
-Physical scanning remains pending. Runtime key revocation uses RF-provided
-entropy rather than enabling the boot-only entropy source while BLE is active,
-following the ESP-IDF header's ADC/RF exclusion requirement.
-
-The USB installer loaded and displayed real browser compatibility/port-selection
-handling. This headless Chromium runner could not select the real Web Serial
-port (it returned No port selected), so **browser USB flashing is not claimed**.
-The final firmware was instead uploaded and hash-verified with PlatformIO/esptool.
-Fresh-install/update manifest offsets and bounds passed automated validation.
-
-Final reboot after the last PlatformIO upload reports both original cards at
-revision 16, selected `ee53bab5`, brightness 5%, slideshow on/60 seconds, timeout
-120 seconds, rotation 0, saved calibration and provisioned state. Heap is 108592
-bytes, largest block 61428, zero PSRAM. The last changes add an isolated QR quiet
-zone, avoid boot entropy configuration during BLE key revocation, and keep editor
-connection/save labels aligned with actual state. USB installer dialog colors
-inherit the chosen theme. Packaged script/style URLs include the deployed commit
-so a cached older transport cannot be mixed with a fresh page.
-
-## Stock uploader overlap discovered and corrected
-
-A late audit of the complete PlatformIO upload log found that Arduino's stock
-recipe included `boot_app0.bin` at 0xe000 for 8192 bytes even though this is a
-factory-only layout. That range overlaps the last NVS sector and PHY partition.
-Earlier uploads retained that stock recipe; the extra image should have been
-checked before the first upload. No card or validated settings loss was observed,
-and both full backups remain intact, but the recipe was unsafe for this table.
-
-`scripts/check_firmware.py` now removes that OTA stub from uploader flags before
-execution, validates sector-rounded flash-write ranges, and checks the compiled
-partition table against the preserved layout. New negative host tests reject the
-OTA stub, NVS/PHY/filesystem writes, boundary-crossing erases and filesystem
-relocation. The real guarded upload log contains only bootloader at 0x1000,
-partitions at 0x8000 and application at 0x10000; no 0xe000 write occurs. USB
-manifests already excluded the OTA stub.
-
-After this upload, the two cards and revision 16, selected ID, calibration and
-slideshow remained available. The current persisted brightness is 100% and timeout
-600 seconds, changed since the earlier 5%/120-second baseline; these current values
-are retained rather than overwritten by the test harness.
-
-## BLE interval optimization
-
-After successful encrypted authentication, the USB-powered badge requests
-7.5–15 ms connection events (the central may reject the request). Actual negotiated
-intervals are exposed in diagnostics. A new complete real Bleak run negotiated
-**15 ms** and uploaded the same complete artwork in **17.730 seconds**, compared
-with 43.388 seconds in the earlier run. Byte comparison, metadata commit, card
-selection, restoration, interrupted upload and reconnect all passed again.
-Revision advanced from 16 to 18 through the test and restoration. These measured
-times are not throughput guarantees for other phones/hosts. The earlier test key
-was rejected after the device's key changed; the harness refreshed its private
-key file from the current device without printing or modifying the credential.
-
-## Released browser build and public binaries
-
-The final public Pages application (without intercepted assets or simulated GATT)
-completed a real Chromium card upload/commit/select in **24.248 seconds** with the
-faster firmware, then restored the original two cards and selection. Revision
-advanced from 18 to 20. Log: `test-results/browser-upload-real-final.log`.
-
-GitHub Actions build and deployment passed for release commit `4c6f0c8`. All eight
-browser tests, portable/flash-boundary tests, firmware build and package validation
-passed in CI. The public 1662080-byte application has SHA-256
-`96436f642912eb1ea144d83d8caed7e20d1946d7c775a31c26cc33c0e2b046c7`.
-It differs from the local build only in embedded runner/home source paths, build
-time and dependent ELF/image hashes; build environments are not byte-identical.
-Published SHA256SUMS validates the downloaded image. That exact published image
-is also flashed separately for the final hardware check, using an application-only
-write at 0x10000 rather than touching any persistent partition.
-
-## Manual pairing and expired-session recovery
-
-The QR screen also shows a readable pairing key for desktop users. A rejected
-stored QR key opens manual pairing without discarding editor state; cancelling
-pairing permits choosing another device. Non-pairing API 401 errors now disconnect
-clearly and preserve artwork for a fresh authenticated reconnect. Ten Chromium
-GATT-simulation tests pass, including stale-key and expired-session recovery.
-The firmware generates RAM-only recovery credentials if NVS cannot be opened and
-refuses to advertise with a missing pairing key; that NVS fault case is code-reviewed
-and compiled, not fault-injected on this populated device.
+Use [the physical checklist](HARDWARE_CHECKLIST.md). Detailed local evidence is
+in the ignored `test-results/` directory, including `final-hardware-benchmarks.json`,
+`ble-end-to-end.json`, `ble-fast-link.json`, `browser-upload-real-final.log`,
+`browser-repair-real.json`, `release-cleanup.json`, `released-6e94619-upload.log`
+and `released-6e94619-status.log`. The final backup and subsequent boot are recorded
+in `released-6e94619-backup.log` and `released-6e94619-after-backup-status.log`.
+Credentials are not printed in these reports.
