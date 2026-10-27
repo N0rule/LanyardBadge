@@ -28,5 +28,5 @@ with device:
         if data:
             text = data.decode(errors="replace")
             print(text, end="", flush=True)
-            if "selftest" in args.command and ("SELFTEST DONE:" in text or "Open setup and initialize" in text):
+            if "selftest" in args.command and "SELFTEST DONE:" in text:
                 break

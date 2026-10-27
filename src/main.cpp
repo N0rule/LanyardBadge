@@ -20,11 +20,16 @@ Bluetooth bluetooth(network, assets, settings);
 uint32_t switchedAt = 0, saveAt = 0, restartAt = 0;
 bool pendingSave = false, pendingClose = false;
 String serialLine;
+uint32_t loopMaxUs = 0;
 void scheduleSave() {
     pendingSave = true;
     saveAt = millis();
 }
 void show(unsigned index, bool persist = true) {
+    if (!assets.deck.count) {
+        ui.page(Page::Pairing);
+        return;
+    }
     ui.select(index);
     switchedAt = millis();
     if (persist) {
@@ -36,9 +41,13 @@ void act(Command c, int value) {
     auto &s = settings.value;
     switch (c) {
     case Command::Next:
+        if (assets.deck.count <= 1)
+            return;
         show((ui.selected() + 1) % assets.deck.count);
         return;
     case Command::Previous:
+        if (assets.deck.count <= 1)
+            return;
         show((ui.selected() + assets.deck.count - 1) % assets.deck.count);
         return;
     case Command::Select:
@@ -72,10 +81,22 @@ void act(Command c, int value) {
         ui.page(Page::Pairing);
         return;
     case Command::WifiSetup:
-        if (network.open())
-            ui.page(Page::Setup);
-        else
-            Serial.println("Could not open setup Wi-Fi");
+        ui.page(Page::Pairing);
+        return;
+    case Command::Timeout: {
+        const uint32_t options[] = {0, 15, 30, 60, 120, 300, 600};
+        for (unsigned i = 0; i < 7; ++i)
+            if (s.screenTimeout == options[i]) {
+                s.screenTimeout = options[(i + 1) % 7];
+                break;
+            }
+        break;
+    }
+    case Command::RevokePairing:
+        if (settings.revokePairing()) {
+            bluetooth.revoke();
+            ui.page(Page::Pairing);
+        }
         return;
     case Command::CloseSetup:
         pendingClose = true;
@@ -89,7 +110,7 @@ void act(Command c, int value) {
         return;
     case Command::Storage:
         if (assets.provision()) {
-            Serial.println("LittleFS initialized; built-in cards saved");
+            Serial.println("Blank LittleFS initialized; no existing files overwritten");
             ui.invalidate();
         } else
             Serial.println("Storage setup failed or filesystem already mounted");
@@ -120,8 +141,20 @@ void serialCommand(const String &s) {
         act(Command::Rotate, 0);
     else if (s == "calibrate")
         ui.page(Page::Calibration);
-    else if (s == "selftest")
-        network.selfTest();
+    else if (s == "sleep")
+        ui.sleep();
+    else if (s == "wake")
+        ui.wake();
+    else if (s == "bench-lvgl")
+        ui.benchmark(false);
+    else if (s == "bench-stream")
+        ui.benchmark(true);
+    else if (s == "render-lvgl")
+        ui.benchmarkMode(false);
+    else if (s == "render-stream")
+        ui.benchmarkMode(true);
+    else if (s == "onboarding")
+        ui.page(Page::Pairing);
     else if (s == "setup")
         act(Command::Setup, 0);
     else if (s == "wifi")
@@ -136,7 +169,7 @@ void serialCommand(const String &s) {
         act(Command::Brightness, 0);
     else
         Serial.println("Commands: status next prev menu badge diag rotate calibrate setup close "
-                       "storage-init brightness restart selftest");
+                       "storage-init brightness restart sleep wake bench-lvgl bench-stream");
 }
 } // namespace
 void setup() {
@@ -144,7 +177,7 @@ void setup() {
     delay(100);
     serialLine.reserve(96);
     pinMode(board::boot, INPUT_PULLUP);
-    Serial.printf("\nLanyardBadge 2.2.0 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
+    Serial.printf("\nLanyardBadge 2.3.0 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
                   ESP.getChipModel(), ESP.getChipRevision(), unsigned(ESP.getFlashChipSize()),
                   unsigned(ESP.getPsramSize()), int(esp_reset_reason()));
     if (!settings.begin())
@@ -155,13 +188,23 @@ void setup() {
                   settings.value.rotation);
     if (!touch.begin())
         Serial.println("WARNING: Touch initialization failed");
-    assets.begin();
+    if (!assets.begin())
+        assets.provision();
+    bool hasArtwork = false;
+    for (unsigned i = 0; i < assets.deck.count; ++i)
+        if (assets.bitmapExists(assets.deck.cards[i].image))
+            hasArtwork = true;
+    if (settings.value.provisioned != hasArtwork) {
+        settings.value.provisioned = hasArtwork;
+        settings.save();
+    }
     ui.command = act;
     ui.info = [] { return network.summary(); };
-    ui.editorUrl = [] { return network.editorUrl(); };
-    ui.connectionHint = [] { return network.connectionHint(); };
+
     ui.pairingUrl = [] { return bluetooth.pairingUrl(); };
     ui.bluetoothName = [] { return bluetooth.name(); };
+    if (!bluetooth.begin())
+        Serial.println("ERROR: Bluetooth initialization failed");
     if (!ui.begin()) {
         Serial.println("FATAL: LVGL initialization failed");
         while (true)
@@ -176,12 +219,9 @@ void setup() {
     };
     network.showBadge = [] { ui.page(Page::Badge); };
     network.paired = [] {
-        if (ui.currentPage() == Page::Setup || ui.currentPage() == Page::Pairing)
+        if (settings.value.provisioned &&
+            (ui.currentPage() == Page::Setup || ui.currentPage() == Page::Pairing))
             ui.page(Page::Badge);
-    };
-    network.connectionChanged = [] {
-        if (ui.currentPage() == Page::Setup || ui.currentPage() == Page::Info)
-            ui.invalidate();
     };
     network.deviceStatus = [](JsonDocument &d) {
         d["screen"] = ui.currentPage() == Page::Badge         ? "badge"
@@ -195,8 +235,26 @@ void setup() {
         d["touchRawY"] = touch.raw().y;
         d["bluetoothConnected"] = bluetooth.connected();
         d["bluetoothName"] = bluetooth.name();
+        ui.diagnostics(d);
+        d["loopMaxUs"] = loopMaxUs;
     };
     network.cardsChanged = [] {
+        if (!assets.deck.count) {
+            settings.value.provisioned = false;
+            strlcpy(settings.value.selected, "00000001", 9);
+            strlcpy(settings.value.defaultCard, "00000001", 9);
+            settings.save();
+            ui.page(Page::Pairing);
+            return;
+        }
+        bool provisioned = false;
+        for (unsigned i = 0; i < assets.deck.count; ++i)
+            if (assets.bitmapExists(assets.deck.cards[i].image))
+                provisioned = true;
+        settings.value.provisioned = provisioned;
+        if (!settings.save())
+            Serial.println(
+                "WARNING: Provisioning state save failed; recovered from manifest at boot");
         bool defaultExists = false;
         for (unsigned i = 0; i < assets.deck.count; ++i)
             if (!strcmp(assets.deck.cards[i].id, settings.value.defaultCard))
@@ -220,24 +278,21 @@ void setup() {
     };
     network.calibrateTouch = [] { ui.page(Page::Calibration); };
     network.settingsChanged = [] {
-        display.brightness(settings.value.brightness);
+        ui.wake();
         ui.orientation();
         switchedAt = millis();
     };
     network.requestClose = [] { pendingClose = true; };
-    network.begin();
-    if (!bluetooth.begin())
-        Serial.println("ERROR: Bluetooth initialization failed");
+
     switchedAt = millis();
-    Serial.println(
-        "Ready. Set up touch once, then hold the screen for the menu. BOOT is recovery only.");
+    Serial.println("Ready. Hold screen for menu. Hold BOOT 2s for editor, 6s for touch recovery.");
     printStatus();
 }
 void loop() {
+    uint32_t loopStart = micros();
     ui.pump();
     bluetooth.tick();
-    if (!bluetooth.connected())
-        network.tick();
+
     if (Serial.available()) {
         char c = Serial.read();
         if (c == '\n' || c == '\r') {
@@ -253,6 +308,11 @@ void loop() {
     if (digitalRead(board::boot) == LOW) {
         if (!pressedAt)
             pressedAt = millis();
+        if (latched && millis() - pressedAt >= 6000 && ui.currentPage() != Page::Calibration) {
+            settings.value.calibration = Calibration{};
+            ui.orientation();
+            ui.page(Page::Calibration);
+        }
         if (!latched && millis() - pressedAt >= 2000) {
             latched = true;
             act(Command::Setup, 0);
@@ -263,7 +323,7 @@ void loop() {
     }
     if (pendingClose) {
         pendingClose = false;
-        network.close();
+        bluetooth.revoke();
         ui.page(Page::Badge);
     }
     if (pendingSave && millis() - saveAt >= 1500) {
@@ -276,7 +336,7 @@ void loop() {
     if (visible && !wasVisible)
         switchedAt = millis();
     wasVisible = visible;
-    if (settings.value.autoplay && visible &&
+    if (assets.deck.count > 1 && settings.value.autoplay && visible &&
         millis() - switchedAt >= settings.value.interval * 1000U)
         show((ui.selected() + 1) % assets.deck.count, false);
     if (restartAt && int32_t(millis() - restartAt) >= 0) {
@@ -284,5 +344,8 @@ void loop() {
             settings.save();
         ESP.restart();
     }
-    delay(3);
+    uint32_t elapsed = micros() - loopStart;
+    if (elapsed > loopMaxUs)
+        loopMaxUs = elapsed;
+    delay(1);
 }

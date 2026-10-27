@@ -3,32 +3,66 @@
 #include <esp_random.h>
 #include <stddef.h>
 namespace badge {
-bool SettingsStore::begin() {
-    if (!prefs_.begin("badge-v2", false))
-        return false;
-    if (prefs_.getBytesLength("settings") == sizeof(Settings)) {
-        Settings saved;
-        prefs_.getBytes("settings", &saved, sizeof(saved));
-        if (saved.version == 2 && saved.crc == checksum(&saved, offsetof(Settings, crc)) &&
-            saved.brightness >= 5 && saved.brightness <= 100 &&
-            (saved.rotation == 0 || saved.rotation == 2) && saved.interval >= 5 &&
-            saved.interval <= 3600 && saved.ssid[32] == 0 && saved.wifiPassword[64] == 0 &&
-            saved.apName[32] == 0 && saved.apPassword[16] == 0 && strlen(saved.apPassword) == 16 &&
-            validId(saved.selected) && validId(saved.defaultCard) && saved.calibration.sane()) {
-            value = saved;
-            return true;
-        }
-        Serial.println("Settings checksum/schema invalid; using safe defaults");
-    }
+namespace {
+void randomKey(char *out) {
     static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
     bootloader_random_enable();
     for (unsigned i = 0; i < 16; ++i)
-        value.apPassword[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+        out[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+    out[16] = 0;
     bootloader_random_disable();
+}
+bool validBase(const SettingsV2 &s) {
+    return s.brightness >= 5 && s.brightness <= 100 && (s.rotation == 0 || s.rotation == 2) &&
+           s.interval >= 5 && s.interval <= 3600 && s.ssid[32] == 0 && s.wifiPassword[64] == 0 &&
+           s.apName[32] == 0 && s.apPassword[16] == 0 && validId(s.selected) &&
+           validId(s.defaultCard) && s.calibration.sane();
+}
+} // namespace
+bool SettingsStore::begin() {
+    if (!prefs_.begin("badge-v2", false))
+        return false;
+    // Independent schema-3 key preserves the original blob for recovery.
+    if (prefs_.getBytesLength("settings3") == sizeof(Settings)) {
+        Settings saved;
+        prefs_.getBytes("settings3", &saved, sizeof(saved));
+        uint32_t crc = saved.crc;
+        saved.crc = 0;
+        if (saved.version == 3 && crc == checksum(&saved, sizeof(saved)) && validBase(saved) &&
+            validScreenTimeout(saved.screenTimeout) && saved.pairingKey[16] == 0 &&
+            strlen(saved.pairingKey) == 16) {
+            saved.crc = crc;
+            value = saved;
+            return true;
+        }
+        Serial.println("Settings v3 invalid; trying preserved v2");
+    }
+    if (prefs_.getBytesLength("settings") == sizeof(SettingsV2)) {
+        SettingsV2 saved;
+        prefs_.getBytes("settings", &saved, sizeof(saved));
+        if (saved.version == 2 && saved.crc == checksum(&saved, offsetof(SettingsV2, crc)) &&
+            validBase(saved)) {
+            static_cast<SettingsV2 &>(value) = saved;
+            Serial.println("Migrated settings v2; original retained");
+        }
+    }
+    if (!value.apPassword[0])
+        randomKey(value.apPassword);
+    randomKey(value.pairingKey);
     return save();
 }
 bool SettingsStore::save() {
-    value.crc = checksum(&value, offsetof(Settings, crc));
-    return prefs_.putBytes("settings", &value, sizeof(value)) == sizeof(value);
+    value.version = 3;
+    value.crc = 0;
+    value.crc = checksum(&value, sizeof(value));
+    return prefs_.putBytes("settings3", &value, sizeof(value)) == sizeof(value);
+}
+bool SettingsStore::revokePairing() {
+    Settings before = value;
+    randomKey(value.pairingKey);
+    if (save())
+        return true;
+    value = before;
+    return false;
 }
 } // namespace badge

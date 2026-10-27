@@ -1,6 +1,6 @@
 #include "Assets.h"
+#include <esp_partition.h>
 #include <esp_random.h>
-#include <lgfx/utility/lgfx_miniz.h>
 #include <memory>
 #include <new>
 namespace badge {
@@ -51,58 +51,23 @@ bool Assets::begin() {
     return true;
 }
 bool Assets::provision() {
-    if (ready_) {
-        // An interrupted first provisioning can leave a mounted but empty filesystem.
-        // Resume without formatting. Never overwrite an existing manifest here.
-        if (deck.revision || LittleFS.exists("/cards.json") || LittleFS.exists("/cards.bak"))
+    if (ready_)
+        return true;
+    // Fresh installs only: never format unrecognized/corrupt user data.
+    const auto *p =
+        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "assets");
+    if (!p)
+        return false;
+    uint8_t bytes[256];
+    for (size_t at = 0; at < p->size; at += sizeof(bytes)) {
+        if (esp_partition_read(p, at, bytes, sizeof(bytes)) != ESP_OK)
             return false;
-    } else {
-        if (!LittleFS.format() || !begin())
-            return false;
+        for (uint8_t b : bytes)
+            if (b != 0xff)
+                return false;
+        yield();
     }
-    String err, id;
-    extern const uint8_t sampleStart[] asm("_binary_assets_sample_bmp_z_start");
-    extern const uint8_t sampleEnd[] asm("_binary_assets_sample_bmp_z_end");
-    size_t compressedBytes = sampleEnd - sampleStart;
-    if (beginUpload(err)) {
-        // The convenience inflater puts an 11 KiB decoder on the stack. Keep both
-        // its state and dictionary on the heap instead of overflowing Arduino's loop task.
-        std::unique_ptr<lgfx_tinfl_decompressor> decoder(new (std::nothrow)
-                                                             lgfx_tinfl_decompressor);
-        std::unique_ptr<uint8_t[]> dictionary(new (std::nothrow) uint8_t[TINFL_LZ_DICT_SIZE]);
-        bool ok = false;
-        if (decoder && dictionary) {
-            lgfx_tinfl_init(decoder.get());
-            size_t consumed = 0, offset = 0;
-            while (true) {
-                size_t input = compressedBytes - consumed, output = TINFL_LZ_DICT_SIZE - offset;
-                auto status = lgfx_tinfl_decompress(decoder.get(), sampleStart + consumed, &input,
-                                                    dictionary.get(), dictionary.get() + offset,
-                                                    &output, TINFL_FLAG_PARSE_ZLIB_HEADER);
-                consumed += input;
-                if (output && !append(dictionary.get() + offset, output))
-                    break;
-                yield();
-                if (status == TINFL_STATUS_DONE) {
-                    ok = consumed == compressedBytes;
-                    break;
-                }
-                if (status != TINFL_STATUS_HAS_MORE_OUTPUT || (!input && !output))
-                    break;
-                offset = (offset + output) & (TINFL_LZ_DICT_SIZE - 1);
-            }
-        }
-        if (ok && finishUpload(id, err)) {
-            auto &c = deck.cards[deck.count++];
-            strcpy(c.id, "00000003");
-            strcpy(c.title, "Pocket illustration");
-            strcpy(c.mode, "artwork");
-            strlcpy(c.image, id.c_str(), sizeof(c.image));
-        } else
-            abortUpload();
-    }
-    staging = deck;
-    return commit(err);
+    return LittleFS.format() && begin();
 }
 bool Assets::bitmapExists(const char *id) const {
     if (!ready_ || !validId(id))

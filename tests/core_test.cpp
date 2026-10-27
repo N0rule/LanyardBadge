@@ -57,6 +57,30 @@ void testCache() {
 }
 int main() {
     testCache();
+    ScreenActivity screen;
+    screen.wake(1000);
+    screen.update(15999, 15, false, false);
+    assert(!screen.asleep());
+    screen.update(16000, 15, false, false);
+    assert(screen.asleep());
+    screen.update(16008, 15, true, false);
+    assert(!screen.asleep() && screen.consumed());
+    screen.update(17000, 15, true, false);
+    assert(screen.consumed());
+    screen.update(17010, 15, false, false);
+    assert(!screen.consumed());
+    screen.update(60000, 0, false, false);
+    assert(!screen.asleep());
+    screen.update(70000, 15, false, true);
+    assert(!screen.asleep());
+    screen.wake(0xfffffff0);
+    screen.update(14983, 15, false, false);
+    assert(!screen.asleep());
+    screen.update(14984, 15, false, false);
+    assert(screen.asleep());
+    for (unsigned seconds : {0, 15, 30, 60, 120, 300, 600})
+        assert(validScreenTimeout(seconds));
+    assert(!validScreenTimeout(1) && !validScreenTimeout(3600));
     Calibration c;
     Point raw[] = {{3800, 300}, {3800, 3700}, {250, 300}},
           dest[] = {{24, 24}, {215, 24}, {24, 295}};

@@ -24,7 +24,8 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     uint16_t sequence_ = 0;
     std::atomic<uint16_t> mtu_{23}, handle_{0};
     bool receiving_ = false, uploading_ = false, responding_ = false, responseHeader_ = false;
-    bool authenticated_ = false;
+    bool authenticated_ = false, waitingAck_ = false;
+    String header_;
     int responseCode_ = 200;
     String request_, method_, path_, token_, response_, name_;
     File responseFile_;
@@ -45,6 +46,7 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
         : api_(api), assets_(assets), settings_(settings) {}
     bool begin();
     void tick();
+    void revoke();
     bool connected() const { return connected_; }
     String name() const { return name_; }
     String pairingUrl() const;

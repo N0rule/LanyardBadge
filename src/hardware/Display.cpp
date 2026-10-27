@@ -47,7 +47,7 @@ bool Display::begin(uint8_t rotation, uint8_t percent) {
     return ok && pwm_;
 }
 void Display::brightness(uint8_t percent) {
-    percent = constrain(percent, 5, 100);
+    percent = percent == 0 ? 0 : constrain(percent, 5, 100);
     if (pwm_)
         ledcWrite(board::backlight, (percent * 255U) / 100U);
 }

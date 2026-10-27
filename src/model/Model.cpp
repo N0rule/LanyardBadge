@@ -176,8 +176,8 @@ bool deckFromJson(JsonVariantConst v, Deck &d, String &err) {
         return false;
     }
     auto a = v["cards"].as<JsonArrayConst>();
-    if (a.size() < 1 || a.size() > maxCards) {
-        err = "Keep between one and ten cards";
+    if (a.size() > maxCards) {
+        err = "Keep up to ten cards";
         return false;
     }
     d.count = 0;
@@ -197,35 +197,10 @@ bool deckFromJson(JsonVariantConst v, Deck &d, String &err) {
 }
 void defaults(Deck &d) {
     d = Deck{};
-    d.count = 2;
-    auto &c = d.cards[0];
-    strcpy(c.id, "00000001");
-    strcpy(c.title, "Hello, I'm N0rule");
-    strcpy(c.name, "N0rule");
-    strcpy(c.description, "IT enthusiast. Code, art and curious ideas.");
-    strcpy(c.url, "https://n0rule.is-a.dev");
-    auto &a = d.cards[1];
-    strcpy(a.id, "00000002");
-    strcpy(a.title, "Make something");
-    strcpy(a.mode, "custom");
-    a.background = 0x3659d9;
-    a.shapeCount = 2;
-    a.shapes[0] = {-0, 190, 240, 130, 0, 0xd9ceff};
-    a.shapes[1] = {160, 24, 56, 56, 28, 0xb6e8d5};
-    a.textCount = 3;
-    strcpy(a.texts[0].text, "Make");
-    a.texts[0].x = 20;
-    a.texts[0].y = 82;
-    a.texts[0].size = 28;
-    a.texts[0].color = 0xffffff;
-    strcpy(a.texts[1].text, "something.");
-    a.texts[1].x = 20;
-    a.texts[1].y = 118;
-    a.texts[1].size = 28;
-    a.texts[1].color = 0xffffff;
-    strcpy(a.texts[2].text, "Take your ideas\nwith you.");
-    a.texts[2].x = 20;
-    a.texts[2].y = 230;
-    a.texts[2].size = 20;
+    d.count = 1;
+    strcpy(d.cards[0].id, "00000001");
+    strcpy(d.cards[0].title, "My first card");
+    strcpy(d.cards[0].mode, "artwork");
+    d.cards[0].background = 0;
 }
 } // namespace badge

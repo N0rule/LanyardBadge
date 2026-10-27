@@ -11,8 +11,9 @@ struct Point {
     int16_t x, y;
 };
 struct Calibration {
-    float a = 0.065f, b = 0, c = -13;
-    float d = 0, e = 0.087f, f = -17;
+    // Factory mapping based on the supplied board's retained four-corner calibration.
+    float a = 0.065888f, b = 0.000906f, c = -12.43359f;
+    float d = 0.004983f, e = 0.09326f, f = -32.71304f;
     bool valid = false;
     Point map(int x, int y, uint8_t rotation) const {
         int px = lroundf(a * x + b * y + c), py = lroundf(d * x + e * y + f);
@@ -77,6 +78,35 @@ inline uint32_t checksum(const void *data, size_t n) {
     }
     return ~crc;
 }
+inline bool validScreenTimeout(uint32_t seconds) {
+    return seconds == 0 || seconds == 15 || seconds == 30 || seconds == 60 || seconds == 120 ||
+           seconds == 300 || seconds == 600;
+}
+// Portable inactivity state machine. A waking press stays consumed until release.
+class ScreenActivity {
+    uint32_t activity_ = 0;
+    bool asleep_ = false, consume_ = false;
+
+  public:
+    void wake(uint32_t now, bool consume = false) {
+        asleep_ = false;
+        activity_ = now;
+        consume_ |= consume;
+    }
+    void sleep() { asleep_ = true; }
+    bool asleep() const { return asleep_; }
+    bool consumed() const { return consume_; }
+    void update(uint32_t now, uint32_t timeout, bool down, bool busy) {
+        if (asleep_ && down)
+            wake(now, true);
+        if (!down)
+            consume_ = false;
+        if (down || busy)
+            activity_ = now;
+        if (!asleep_ && timeout && !busy && !down && uint32_t(now - activity_) >= timeout * 1000U)
+            asleep_ = true;
+    }
+};
 enum class Gesture { None, Tap, Left, Right, Hold };
 class Gestures {
     bool active_ = false, held_ = false;

@@ -19,9 +19,26 @@ enum class Command {
     Rotate,
     Restart,
     Storage,
-    Select
+    Select,
+    Timeout,
+    RevokePairing
 };
-enum class Page { Badge, Menu, Gallery, Info, Diagnostics, Calibration, Setup, Storage, Pairing };
+enum class Page {
+    Badge,
+    Menu,
+    Gallery,
+    Info,
+    Diagnostics,
+    Calibration,
+    Setup,
+    Storage,
+    Pairing,
+    Slideshow,
+    Display,
+    Settings,
+    Advanced,
+    RePair
+};
 class Ui {
     Display &display_;
     Touch &touch_;
@@ -29,7 +46,7 @@ class Ui {
     SettingsStore &settings_;
     lv_display_t *lvDisplay_ = nullptr;
     lv_fs_drv_t fs_{};
-    Page page_ = Page::Badge;
+    Page page_ = Page::Badge, renderedPage_ = Page::Storage;
     bool dirty_ = true, busy_ = false, ignore_ = true;
     Gestures gestures_;
     unsigned selected_ = 0;
@@ -42,7 +59,15 @@ class Ui {
     uint32_t calibrationStarted_ = 0;
     Point rawSamples_[3]{};
     Calibration candidate_;
+    ScreenActivity activity_;
+    uint32_t flushUs_ = 0, flushMax_ = 0, flushPixels_ = 0, flushCount_ = 0;
+    uint32_t handlerMax_ = 0, frameUs_ = 0, framePixels_ = 0, frames_ = 0, frameStart_ = 0;
+    uint32_t artworkUs_ = 0;
+    int lastProgress_ = -2;
+    bool streaming_ = true, direct_ = false;
     void render();
+    bool streamArtwork();
+    void updateControls();
     void renderBadge(lv_obj_t *);
     void calibrationTick();
     lv_obj_t *label(lv_obj_t *, const char *, int, int, int, int, const lv_font_t *, uint32_t);
@@ -67,7 +92,24 @@ class Ui {
     void invalidate() { dirty_ = true; }
     void select(unsigned index);
     unsigned selected() const { return selected_; }
-    bool badgeVisible() const { return page_ == Page::Badge && !busy_ && !touch_.down(); }
+    bool badgeVisible() const {
+        return page_ == Page::Badge && !busy_ && !touch_.down() && !activity_.asleep();
+    }
+    bool asleep() const { return activity_.asleep(); }
+    void wake() {
+        activity_.wake(millis(), touch_.down());
+        display_.brightness(settings_.value.brightness);
+    }
+    void sleep() {
+        activity_.sleep();
+        display_.brightness(0);
+    }
+    void benchmarkMode(bool streaming) {
+        streaming_ = streaming;
+        invalidate();
+    }
+    void diagnostics(JsonDocument &) const;
+    void benchmark(bool streaming);
     void orientation();
     void uploadProgress(int percent);
 };

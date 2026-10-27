@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 namespace badge {
-struct Settings {
+struct SettingsV2 {
     uint32_t version = 2;
     uint32_t interval = 15;
     uint8_t brightness = 65, rotation = 0;
@@ -16,6 +16,11 @@ struct Settings {
     Calibration calibration{};
     uint32_t crc = 0;
 };
+struct Settings : SettingsV2 {
+    uint32_t screenTimeout = 120;
+    bool provisioned = false;
+    char pairingKey[17]{};
+};
 class SettingsStore {
     Preferences prefs_;
 
@@ -23,5 +28,6 @@ class SettingsStore {
     Settings value;
     bool begin();
     bool save();
+    bool revokePairing();
 };
 } // namespace badge

@@ -20,6 +20,7 @@ bool Bluetooth::begin() {
     NimBLEDevice::init(name_.c_str());
     NimBLEDevice::setMTU(517);
     // Encrypted GATT link, with the QR secret providing application-level ownership.
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
     NimBLEDevice::setSecurityAuth(false, false, true);
     server_ = NimBLEDevice::createServer();
     server_->setCallbacks(this, false);
@@ -34,14 +35,21 @@ bool Bluetooth::begin() {
     tx_->setCallbacks(this);
     server_->start();
     auto *advertising = NimBLEDevice::getAdvertising();
-    advertising->addServiceUUID(service->getUUID());
-    advertising->setName(name_.c_str());
     advertising->enableScanResponse(true);
+    advertising->addServiceUUID(service->getUUID());
+    if (!advertising->setName(name_.c_str()))
+        return false;
     return advertising->start();
 }
 String Bluetooth::pairingUrl() const {
     return String("https://n0rule.github.io/LanyardBadge/#badge=") + name_ +
-           "&key=" + settings_.value.apPassword;
+           "&key=" + settings_.value.pairingKey;
+}
+void Bluetooth::revoke() {
+    api_.revokeSession();
+    if (connected_ && server_)
+        server_->disconnect(handle_);
+    reset();
 }
 void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
     handle_ = info.getConnHandle();
@@ -81,6 +89,8 @@ void Bluetooth::reset() {
     receiving_ = uploading_ = responding_ = responseHeader_ = authenticated_ = false;
     request_ = response_ = token_ = "";
     responseFile_.close();
+    header_ = "";
+    waitingAck_ = false;
     lastActivity_ = millis();
 }
 bool Bluetooth::notify(uint8_t op, uint32_t value, const uint8_t *data, size_t n) {
@@ -100,6 +110,7 @@ void Bluetooth::answer(int code, const String &body) {
     responding_ = true;
     responseHeader_ = false;
     sent_ = 0;
+    waitingAck_ = false;
     request_ = "";
 }
 void Bluetooth::fail(int code, const char *message) {
@@ -119,6 +130,30 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
     uint32_t offset = get32(p + 3);
     uint8_t op = p[0];
     lastActivity_ = millis();
+    if (op == 5 && responding_ && seq == sequence_ && offset == sent_) {
+        waitingAck_ = false;
+        return;
+    }
+    // Request headers are fragmented as well: works at ATT MTU 23 (13 payload bytes).
+    if (op == 4) {
+        if (receiving_ || responding_ || offset != header_.length() ||
+            header_.length() + n - 7 > 512 || n == 7) {
+            fail(409, "Invalid request header fragments");
+            header_ = "";
+            return;
+        }
+        if (!header_.length())
+            sequence_ = seq;
+        if (seq != sequence_ || !header_.concat(reinterpret_cast<const char *>(p + 7), n - 7)) {
+            fail(507, "Invalid header or insufficient memory");
+            header_ = "";
+            return;
+        }
+        receiving_ = false;
+        if (!notify(0, header_.length()))
+            overflow_ = true;
+        return;
+    }
     if (op == 1) {
         if (receiving_ || responding_) {
             overflow_ = true;
@@ -126,7 +161,10 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
         }
         sequence_ = seq;
         JsonDocument d;
-        if (deserializeJson(d, p + 7, n - 7) || !d["length"].is<uint32_t>()) {
+        auto err =
+            header_.length() ? deserializeJson(d, header_) : deserializeJson(d, p + 7, n - 7);
+        header_ = "";
+        if (err || !d["length"].is<uint32_t>()) {
             fail(400, "Invalid transfer header");
             return;
         }
@@ -232,6 +270,8 @@ void Bluetooth::transmit() {
             responseHeader_ = true;
         return;
     }
+    if (waitingAck_)
+        return;
     if (sent_ < total) {
         uint8_t chunk[500];
         size_t count =
@@ -246,6 +286,7 @@ void Bluetooth::transmit() {
             memcpy(chunk, response_.c_str() + sent_, count);
         if (notify(2, sent_, chunk, count)) {
             sent_ += count;
+            waitingAck_ = true;
             lastActivity_ = millis();
         }
     } else if (notify(3, total)) {
@@ -262,7 +303,7 @@ void Bluetooth::tick() {
         reset();
         seenGeneration_ = gen;
         if (connected_)
-            api_.suspend();
+            api_.revokeSession();
     }
     if (overflow_.exchange(false)) {
         server_->disconnect(handle_);
@@ -276,7 +317,7 @@ void Bluetooth::tick() {
         packet(p.data, p.size);
     if (responding_)
         transmit();
-    if ((receiving_ || responding_) && millis() - lastActivity_ > 15000) {
+    if ((receiving_ || responding_ || header_.length()) && millis() - lastActivity_ > 15000) {
         server_->disconnect(handle_);
         reset();
     }
