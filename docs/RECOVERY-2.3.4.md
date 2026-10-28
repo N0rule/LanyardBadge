@@ -1,5 +1,9 @@
 # 2.3.4 connection and draft recovery
 
+Current result: browser-first PIN pairing and bonded reconnect were verified on
+Windows with Helium and Badge-287E, with the unsaved edit retained. The final
+security design and remaining checks are at the end of this chronological record.
+
 ## Investigation and scope
 
 Remote main was checked before edits: 6ee8edfc59093f3fe9b1ee80581736a50d43f0cf.
@@ -39,7 +43,7 @@ whether a newer source already exists. Old service-discovery continuations and
 notification listeners cannot replace or disconnect a newer transport session.
 Workspace switching does not close images still owned by another workspace.
 
-## BLE security decision
+## Initial BLE security decision (superseded by the passkey profile below)
 
 Protocol versions 1 and 2 and firmware storage layout are unchanged. The TX HELLO
 read requires encryption; RX writes do too. GATT connection and service discovery
@@ -237,7 +241,7 @@ A browser flag is not the production fix. Direct Windows pairing was requested
 as a diagnostic comparison; its outcome is pending. Native security must not be
 removed or changed to an insecure transport just to hide this rejection.
 
-## Verified Windows recovery
+## Diagnostic Windows Settings workaround (superseded)
 
 Windows Add device initially hid Badge-287E. A passive Linux scan confirmed that
 it was advertising its custom GATT service, without opening a connection. After
@@ -255,7 +259,7 @@ ConfirmOnly support is consistent with that difference, but the tester's exact
 browser version/feature configuration was not captured. The source flag alone
 must not be presented as proof of their exact browser configuration.
 
-For affected Windows users:
+At this diagnostic stage, the workaround was:
 
 1. Pair once using Windows Settings → Bluetooth & devices → Add device → Bluetooth.
 2. Choose Show all devices if the badge is hidden. On older builds, select Advanced
@@ -280,6 +284,115 @@ landing screen and clears after successful authentication. Failures before the
 security read remain classified as GATT connection failures and do not suggest
 pairing. No browser flags are required or recommended.
 
-A real Windows unsaved-edit disconnect/reconnect test has been requested; its
-outcome is pending. The protocol-2 GATT framing, ownership mechanism, partition
+In response to the Windows same-tab unsaved-edit disconnect/reconnect check, the
+tester reported that Helium works fine. Brave also connected, but failed after F5;
+they reported enabling Bluetooth support with browser flags and explicitly chose
+Helium for future testing. Treat Brave refresh behavior as a remaining limitation,
+not as a proven flags-related cause. Helium page-refresh reconnection was not
+separately confirmed. Do not claim stable Chrome/Edge testing from these results.
+Unsaved original artwork lives in tab memory and does not survive an F5 refresh;
+this is separate from reconnect preservation and cached committed artwork. The protocol-2 GATT framing, ownership mechanism, partition
 layout, NVS credentials and stored artwork remain compatible.
+
+
+## Final connection design: browser-initiated authenticated PIN pairing
+
+The tester removed the Windows bond and reproduced the browser failure again.
+They correctly rejected requiring Windows Settings as the normal connection flow.
+The final firmware therefore replaces NoInputNoOutput with DisplayOnly and requires
+bonding, MITM authentication, LE Secure Connections only and 128-bit link keys.
+RX WRITE_AUTHEN and TX READ_AUTHEN retain encryption and reject unauthenticated
+access. The new explicit link-security profile is `sc-passkey-v1`; wire protocol 2,
+UUIDs and framing stay unchanged to allow existing open tabs to reconnect and save
+in-memory edits before refreshing. Old protocol-1/2 firmware remains supported with
+its original policy, without claiming the new security properties for it.
+
+A fresh uniform six-digit PIN appears only on the physical badge. The browser's
+native ProvidePin path accepts it directly; Windows Settings and experimental flags
+are not required. PIN state crosses BLE/main-loop tasks atomically, is never logged,
+persisted or exported, and clears on authentication/disconnection. A 60-second
+expiration and physical Cancel stop the link. The existing ownership credential,
+physical four-letter enrollment requirement, five-failure/30-second application
+throttle, API session expiry and revocation remain in force. Credentials are never
+sent over an unencrypted application transport. This is a standard BLE security
+association, not a new custom cipher or an application-layer crypto protocol.
+
+Compared with the old Just Works flow, physical PIN entry adds MITM protection and
+uses Chromium's supported ProvidePin ceremony. Compared with application-layer AEAD,
+it avoids implementing a new authenticated handshake, PAKE enrollment, nonce/counter
+management and migration on the no-PSRAM board. It retains native OS BLE pairing,
+but lets users complete it from the browser. A legacy unauthenticated bond gets one
+standard security-upgrade attempt; failure closes the link. Old-bond upgrade across
+Windows/Linux/Android is not yet radio-verified and may require removing that badge's
+stale OS bond once. Neither code path erases ownership settings or artwork.
+
+Connected transient protected-read errors have a 45-second retry deadline to allow
+native PIN entry. A pending native GATT read itself is governed by the host stack;
+the deadline does not impose a browser-level timeout on that read. Explicit rejection,
+cancellation, lost connection and superseded sessions stop retrying. Retrying alone
+is not the pairing fix: the supported association model is. Service, characteristic,
+subscription, credential, disconnect and timeout classifications remain separate;
+opaque stack errors cannot prove a stale bond. Windows guidance now describes the
+six-digit PIN and recommends a USB update if old firmware never displays one.
+
+### Actual final-profile hardware and Windows results
+
+Before flashing, a second private 4 MB backup and the existing partition table were
+preserved and validated. Only the application at 0x10000 was written; esptool verified
+its hash. NVS and LittleFS were not erased or migrated. The board retained two cards
+and revision 4 immediately after the update. The later observed revision 5 came during
+the user's editing session; the two-card collection remained present.
+
+The user connected directly from the website on Windows using Helium and confirmed:
+“Entered the PIN and the editor opened.” After making an unsaved title/artwork edit,
+disconnecting through the website and reconnecting without refreshing, they confirmed:
+“Reconnected without a PIN and the edit survived.” Recorded badge diagnostics show
+three successful security events, an encrypted and authenticated link, one retained
+bond and 15 ms initial connection intervals. The observed minimum heap during this
+session was 95,828 bytes. No PIN or ownership secret was captured. These are actual
+radio/user tests, separately from browser mocks. The development board is left running;
+no further flash/reset is needed for the user's current editing session.
+
+The published source additionally corrects newly generated QR links to the canonical
+`https://n0rule.is-a.dev/LanyardBadge/` origin. This URL-only firmware change follows
+the physically tested security binary; the final build is compiled but not reflashed
+onto the active board. Do not describe the two binaries as byte-identical.
+
+All 55 browser tests passed before documentation completion, including native PIN
+wait/rejection, bond reuse, original title-preservation regression, legacy pairing,
+snapshots, draft/image/transform preservation, conflicts, cache scopes and stale
+sessions. Host ASan/UBSan, codec/GIF and flash-layout checks passed. Final release
+build/package and deployment results are recorded below after publication.
+
+Remaining manual checks: Chrome/Edge on Windows; Helium refresh after saving;
+Brave refresh failure diagnosis; new-profile Linux/Android pairing; legacy bond
+security upgrade; interrupted transfer and data-preserving final firmware upgrade.
+Keep the earlier seven-step Windows plan, substituting the badge's browser PIN for
+first-time Settings pairing. Refresh ends in-memory drafts, so save before F5.
+The exact cause of the original CI-only title reset remains unestablished; its
+assertion is retained and the independently established state-loss paths are fixed.
+
+
+### Release validation and changed files
+
+Final local validation passed: 55 browser tests (36.7 seconds), host C++ ASan/UBSan,
+codec/GIF and compiled flash-layout protections, cyd2usb build, pinned installer
+packaging, manifest bounds and SHA-256 checks. Static RAM: 73,792 / 327,680 bytes;
+ELF flash sections: 1,644,703 / 2,097,152; deployable binary: 1,691,856 / 2,097,152.
+The serial capture is bounded and finished without reopening/resetting the board.
+
+- `src/net/Bluetooth.*`, `platformio.ini`: enforced authenticated SC passkey profile,
+  temporary physical PIN and legacy-security upgrade; canonical QR origin.
+- `src/ui/Ui.*`, `src/main.cpp`: themed physical PIN/cancel screen on the UI thread,
+  and secret-free security diagnostics.
+- `web/transport.js`, `web/app.js`: wait for native PIN completion, retain precise
+  connection stages and show browser-first recovery while preserving editor drafts.
+- `tests/ble-mock.cjs`, `tests/editor.spec.cjs`: realistic pending/rejected native
+  security operations, bond reuse and source/title retention. Mocks do not establish
+  radio interoperability.
+- `README.md`, `docs/API.md`, `docs/ARCHITECTURE.md`, this record: current flow,
+  compatibility, security tradeoffs, actual hardware evidence and remaining checks.
+
+Earlier commits in this task contain the committed/draft/cache separation, workspace
+reconciliation, stale-session protection and broader regression coverage described
+above. No existing regression assertion was weakened, skipped or deleted.

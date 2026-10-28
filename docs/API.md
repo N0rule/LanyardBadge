@@ -3,11 +3,27 @@
 Service `f40d1000-6f15-4d56-b6d4-17c92e648a10`.
 Receive/write `f40d1001-6f15-4d56-b6d4-17c92e648a10`.
 Transmit/read/notify `f40d1002-6f15-4d56-b6d4-17c92e648a10`.
-Encrypted writes/reads; complete an encrypted read before subscribing, then
+Authenticated, encrypted writes/reads; complete a protected read before subscribing, then
 subscribe before sending requests. This avoids racing security setup during a
 fast reconnect. A read returns three
 bytes: protocol version 2, then little-endian negotiated MTU (uint16). The current
 browser also accepts legacy version 1.
+
+Current firmware advertises the link-security profile `sc-passkey-v1` in authenticated
+status diagnostics, independently of wire protocol version 2. It requires LE Secure
+Connections, MITM authentication and a 16-byte encryption key. DisplayOnly pairing
+shows a fresh six-digit PIN on the badge; the user types it into the browser/OS native
+prompt. The PIN is never returned through this API, logged, or stored. It is cleared
+on completion/disconnect and canceled after 60 seconds. Bonded reconnects normally
+require no PIN. The separate four-letter editor code is not a Bluetooth PIN.
+
+The UUIDs, handles, HELLO and operation framing are unchanged so existing open editor
+tabs can reconnect and save drafts before refreshing. The browser supports older
+protocol-1/2 firmware with its original link-security policy; it never treats a legacy
+HELLO as proof of the new profile. Firmware does not fall back to unauthenticated
+security. An old Just Works bond gets one standard security-upgrade attempt; if the
+host cannot upgrade it, re-pair that badge once. This migration path still needs
+cross-platform radio validation. Ownership credentials and stored artwork are retained.
 
 After subscribing, a protocol-2 client sends operation 6 with a fresh sequence,
 offset 0 and no payload, then waits for operation-0 acknowledgement at offset 0.
@@ -86,8 +102,9 @@ Status responses additionally expose `bluetoothSecurityStatus` (the last NimBLE
 GAP encryption-change result) and `bluetoothSecurityEvents` (its count since boot).
 They survive a disconnect in RAM, not a reboot. Status 0 with count 0 means no
 security result has been observed. With an observed event, status 0 indicates
-successful security state change; also inspect `bluetoothEncrypted` for the live
-link. Native error bases follow the pinned NimBLE host: HCI 0x200, local SMP 0x400,
+successful security state change; also inspect `bluetoothEncrypted` and
+`bluetoothAuthenticated` for the live link. `bluetoothProtocol` is 2 and
+`bluetoothSecurityProfile` is `sc-passkey-v1` on current firmware. Native error bases follow the pinned NimBLE host: HCI 0x200, local SMP 0x400,
 peer SMP 0x500. For example, 0x50C is a peer SMP Numeric Comparison Failed rejection.
 These diagnostic values contain no keys, tokens, PINs, or peer addresses. Older
 firmware can omit both fields; older clients may ignore them.

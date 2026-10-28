@@ -98,29 +98,43 @@ sequence and each queued firmware packet a connection generation. On disconnect,
 partial upload and session credentials are discarded. A 15-second inactivity
 timeout applies per active transfer; the whole card may take longer.
 
-The link uses encrypted GATT with NoInputNoOutput pairing and retained bonding
-keys. The central establishes security through encrypted GATT access rather than
-racing service discovery with a peripheral-initiated SMP request. Physical editor
-revocation retains the OS bond and rotates application credentials. This avoids
-one-sided bond deletion breaking Linux reconnection. This is combined with application-level
-ownership through a random per-device credential. A four-letter code is derived
-from it without changing the settings schema. Manual code and QR-code pairing are
-accepted only while the physical connection screen is open. Five failed attempts
-block pairing for 30 seconds, including across disconnects (until reboot).
-The QR carries the short code in its fragment, which is removed immediately.
-Successful encrypted pairing returns the strong credential as well as a temporary
-session token. With Remember enabled, the browser saves its device ID and strong
-credential in localStorage; subsequent visits use `getDevices()` and reauthenticate
-without showing a chooser or requiring code entry where supported. Unavailable
-devices remain disconnected. Forget badge clears browser access data while
-preserving editor changes; physical Settings → Advanced → Revoke editor access
-rotates the credential/code and disconnects editors. Legacy strong
-QR keys remain accepted for compatibility. A photographed short code remains
-usable while the connection screen is open until revoked. BLE encryption without
-MITM protection is not a substitute for the ownership check. Browser
-support depends on OS, Bluetooth daemon/agent and secure Web Bluetooth support.
-Linux Chromium may need one initial pairing in system Bluetooth settings; an
-active desktop pairing agent is required. A running daemon alone is insufficient.
+The link-security profile `sc-passkey-v1` uses authenticated encrypted GATT,
+DisplayOnly pairing, bonding, MITM authentication and enforced LE Secure Connections.
+The compile-time SC-only setting is asserted; the authentication callback also
+requires a 16-byte key. The central starts security by reading the protected HELLO,
+rather than the peripheral racing service discovery with an SMP request. Fresh
+six-digit PINs use hardware entropy and rejection sampling. BLE callbacks publish
+only atomic PIN state; the main loop renders the physical PIN screen, keeps it
+awake and restores the preceding screen on completion. Cancel disconnects without
+changing ownership credentials or files. PINs expire after 60 seconds and are never
+logged, persisted or exposed in diagnostics. Bonded reconnects avoid repeated PIN entry.
+An encrypted but unauthenticated legacy bond gets one standard security upgrade;
+application characteristics remain inaccessible until authentication succeeds.
+
+This uses the existing stack rather than adding a new application cryptographic
+protocol. Physical PIN entry authenticates the link; a random per-device credential
+separately authorizes ownership. A four-letter code is derived from it without
+changing the settings schema. Short-code enrollment requires the physical connection
+screen. Five failed application attempts block pairing for 30 seconds, including
+across disconnects until reboot. The QR carries the short code in its fragment,
+which is removed immediately. Successful protected application pairing returns the
+strong credential and a temporary session token. API sessions expire after 20 minutes
+of inactivity. With Remember enabled, the browser saves device ID and credential in
+localStorage and uses `getDevices()` where supported. Forget badge removes browser
+access while preserving in-memory edits. Physical Revoke editor access rotates the
+credential/code and disconnects editors while retaining OS bonds, NVS layout and artwork.
+Legacy strong QR keys remain compatible. A photographed short code remains usable
+while the physical connection screen is open until revoked.
+
+Upstream Chromium's WinRT ProvidePin path supports native PIN entry independently
+of its experimental ConfirmOnly/ConfirmPinMatch support. Actual user-assisted Helium
+Windows tests verified browser-first PIN entry and bonded reconnect with unsaved edits
+retained. No Windows Settings or flags were needed for that flow. Brave refresh failed
+in the tester's configuration; the cause is unverified. Chrome/Edge, Android and Linux
+still need radio validation of the new security profile. Linux also needs a desktop
+pairing agent. Old firmware remains readable through wire versions 1/2 with its older
+security policy. See [the investigation](RECOVERY-2.3.4.md) for captured failures and
+remaining migration tests.
 
 Protocol 2 adds an encrypted operation-6 session reset, acknowledged before
 authentication. Page reloads can leave the physical BLE connection alive while

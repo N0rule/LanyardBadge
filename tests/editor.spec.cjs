@@ -868,6 +868,7 @@ for (const securityFailure of [false, true]) {
       }),
     );
     await setup(page);
+    const defaultHelp = await page.locator('#compatibility').textContent();
     await page.evaluate((security) => {
       if (security) bleMock.disconnectedReads = 3;
       else bleMock.busyConnects = 3;
@@ -875,16 +876,66 @@ for (const securityFailure of [false, true]) {
     await page.locator('#connect').click();
     await expect(page.locator('#connection')).toHaveText('Disconnected');
     if (securityFailure) {
-      await expect(page.locator('#compatibility')).toContainText('Windows Settings');
-      await expect(page.locator('#compatibility')).toContainText('Show all devices');
+      await expect(page.locator('#compatibility')).toContainText('six-digit number');
+      await expect(page.locator('#compatibility')).toContainText('USB');
       await expect(page.locator('#compatibility')).toContainText('Your edits are kept');
     } else {
       await expect(page.locator('#toast')).toContainText('could not establish a connection');
       await expect(page.locator('#toast')).not.toContainText('pair');
-      await expect(page.locator('#compatibility')).not.toContainText('Windows Settings');
+      await expect(page.locator('#compatibility')).toHaveText(defaultHelp);
     }
     await expect(page.locator('#toast')).not.toContainText('On Linux');
     await connect(page);
-    await expect(page.locator('#compatibility')).not.toContainText('Windows Settings');
+    await expect(page.locator('#compatibility')).toHaveText(defaultHelp);
   });
 }
+
+test('browser pairing waits for native PIN entry and reconnect reuses its bond', async ({
+  page,
+}) => {
+  await setup(page, { mockOptions: { passkey: true } });
+  await page.locator('#connect').click();
+  await expect(page.locator('#connection')).toHaveText('Pairing…');
+  await page.waitForFunction(() => bleMock.passkeyRequested);
+  expect(await page.evaluate(() => bleMock.requests)).toEqual([]);
+  await expect(page.locator('#studio')).toBeHidden();
+  await page.evaluate(() => bleMock.completeNativePairing(true));
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await image(page);
+  await page.locator('#title').fill('Browser paired draft');
+  await page.evaluate(() => badgeDevice.disconnect());
+  await connect(page);
+  await expect(page.locator('#title')).toHaveValue('Browser paired draft');
+  expect(await page.evaluate(() => bleMock.nativePairingCount)).toBe(1);
+  expect(await page.evaluate(() => badgeDevice.protocol)).toBe(2);
+});
+
+test('rejected native PIN keeps the source draft and permits a fresh browser pairing attempt', async ({
+  page,
+}) => {
+  await setup(page, { mockOptions: { passkey: true } });
+  await page.locator('#connect').click();
+  await page.waitForFunction(() => bleMock.passkeyRequested);
+  await page.evaluate(() => bleMock.completeNativePairing(true));
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await image(page);
+  await page.locator('#title').fill('Keep the original source');
+  await page.evaluate(() => {
+    globalThis.sourceBeforePin = BadgeEditor.state.image;
+    badgeDevice.disconnect();
+    bleMock.nativeBonded = false;
+  });
+  await page.locator('#connect').click();
+  await page.waitForFunction(() => bleMock.passkeyRequested);
+  await page.evaluate(() => bleMock.completeNativePairing(false));
+  await expect(page.locator('#connection')).toHaveText('Disconnected');
+  await expect(page.locator('#title')).toHaveValue('Keep the original source');
+  expect(
+    await page.evaluate(() => BadgeEditor.changed && BadgeEditor.state.image === sourceBeforePin),
+  ).toBe(true);
+  await page.locator('#connect').click();
+  await page.waitForFunction(() => bleMock.passkeyRequested);
+  await page.evaluate(() => bleMock.completeNativePairing(true));
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#title')).toHaveValue('Keep the original source');
+});

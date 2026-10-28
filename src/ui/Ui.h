@@ -22,7 +22,8 @@ enum class Command {
     Timeout,
     RevokePairing,
     Theme,
-    Back
+    Back,
+    CancelBluetoothPairing
 };
 enum class Page {
     Badge,
@@ -36,7 +37,8 @@ enum class Page {
     Display,
     Settings,
     Advanced,
-    RePair
+    RePair,
+    BluetoothPairing
 };
 class Ui {
     Display &display_;
@@ -69,6 +71,8 @@ class Ui {
     uint32_t uploadChangedAt_ = 0;
     bool streaming_ = true, direct_ = false;
     bool pairedOnce_ = false;
+    uint32_t nativePasskey_ = UINT32_MAX;
+    Page pairingReturn_ = Page::Badge;
     uint32_t renderedTheme_ = 2;
     void render();
     bool streamArtwork();
@@ -95,10 +99,13 @@ class Ui {
     void tick();
     void pump();
     void page(Page p);
+    void nativePairing(uint32_t passkey);
     void goBack() { back(); }
     void paired() {
         pairedOnce_ = true;
-        if (page_ == Page::Pairing)
+        if (page_ == Page::BluetoothPairing)
+            pairingReturn_ = Page::Badge;
+        else if (page_ == Page::Pairing)
             page(Page::Badge);
     }
     Page currentPage() const { return page_; }

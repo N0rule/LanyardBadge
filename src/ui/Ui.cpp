@@ -490,6 +490,24 @@ void Ui::render() {
         lv_obj_set_pos(b, 16, 258);
         return;
     }
+    if (page_ == Page::BluetoothPairing) {
+        auto *title = label(root, "Bluetooth pairing", 16, 24, 208, 32, font(20), ink());
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+        auto *hint = label(root, "Enter this six-digit number in your computer's Bluetooth prompt.",
+                           20, 76, 200, 58, font(14), ink());
+        lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+        char number[7];
+        snprintf(number, sizeof(number), "%06lu", (unsigned long)nativePasskey_);
+        auto *pin = label(root, number, 16, 146, 208, 40, font(28), ink());
+        lv_obj_set_style_text_align(pin, LV_TEXT_ALIGN_CENTER, 0);
+        auto *note =
+            label(root, "Only enter it if you started this connection. It expires after pairing.",
+                  20, 208, 200, 48, font(14), ink());
+        lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
+        auto *cancel = button(root, "Cancel pairing", int(Command::CancelBluetoothPairing));
+        lv_obj_set_pos(cancel, 16, 270);
+        return;
+    }
     if (page_ == Page::Pairing) {
         auto *title =
             label(root, settings_.value.provisioned ? "Connect to editor" : "Lanyard Badge", 16, 22,
@@ -590,6 +608,18 @@ void Ui::render() {
     button(list, "Connect to editor", int(Command::Setup));
     button(list, "Settings", -1 - int(Page::Settings));
 }
+void Ui::nativePairing(uint32_t passkey) {
+    if (passkey == nativePasskey_)
+        return;
+    nativePasskey_ = passkey;
+    if (passkey < 1000000U) {
+        if (page_ != Page::BluetoothPairing)
+            pairingReturn_ = page_;
+        page(Page::BluetoothPairing);
+    } else if (page_ == Page::BluetoothPairing) {
+        page(pairingReturn_);
+    }
+}
 void Ui::page(Page p) {
     wake();
     if (p == Page::Badge && !settings_.value.provisioned && !pairedOnce_)
@@ -685,7 +715,7 @@ void Ui::tick() {
         calibrationTick();
     bool wasAsleep = activity_.asleep();
     activity_.update(millis(), settings_.value.screenTimeout, touch_.down(),
-                     busy_ || page_ == Page::Calibration);
+                     busy_ || page_ == Page::Calibration || page_ == Page::BluetoothPairing);
     if (wasAsleep != activity_.asleep())
         display_.brightness(activity_.asleep() ? 0 : settings_.value.brightness);
     if (activity_.asleep() || activity_.consumed()) {

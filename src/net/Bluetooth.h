@@ -19,12 +19,13 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     NimBLEServer *server_ = nullptr;
     NimBLECharacteristic *tx_ = nullptr;
     std::atomic<bool> connected_{false}, overflow_{false};
+    std::atomic<bool> upgradeNeeded_{false}, upgradeAttempted_{false};
     std::atomic<uint32_t> generation_{0};
     uint32_t seenGeneration_ = 0, lastActivity_ = 0, received_ = 0, length_ = 0, sent_ = 0;
     uint16_t sequence_ = 0;
     std::atomic<uint16_t> mtu_{23}, handle_{0}, initialInterval_{0};
     std::atomic<int> disconnectReason_{0}, securityStatus_{0};
-    std::atomic<uint32_t> securityEvents_{0};
+    std::atomic<uint32_t> securityEvents_{0}, nativePasskey_{UINT32_MAX}, nativeStarted_{0};
     bool receiving_ = false, uploading_ = false, responding_ = false, responseHeader_ = false;
     bool authenticated_ = false, waitingAck_ = false;
     String header_;
@@ -42,6 +43,7 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     void onDisconnect(NimBLEServer *, NimBLEConnInfo &, int) override;
     void onMTUChange(uint16_t, NimBLEConnInfo &) override;
     void onAuthenticationComplete(NimBLEConnInfo &) override;
+    uint32_t onPassKeyDisplay() override;
     void onWrite(NimBLECharacteristic *, NimBLEConnInfo &) override;
     void onRead(NimBLECharacteristic *, NimBLEConnInfo &) override;
 
@@ -55,6 +57,11 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     int disconnectReason() const { return disconnectReason_; }
     int securityStatus() const { return securityStatus_; }
     uint32_t securityEvents() const { return securityEvents_; }
+    uint32_t nativePasskey() const { return nativePasskey_; }
+    void cancelNativePairing();
+    bool authenticatedLink() const {
+        return connected_ && server_->getPeerInfoByHandle(handle_).isAuthenticated();
+    }
     bool encrypted() const {
         return connected_ && server_->getPeerInfoByHandle(handle_).isEncrypted();
     }

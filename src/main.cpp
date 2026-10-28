@@ -77,6 +77,10 @@ void act(Command c, int value) {
         strlcpy(s.defaultCard, assets.deck.cards[ui.selected()].id, 9);
         strlcpy(s.selected, s.defaultCard, 9);
         break;
+    case Command::CancelBluetoothPairing:
+        bluetooth.cancelNativePairing();
+        ui.nativePairing(UINT32_MAX);
+        return;
     case Command::Setup:
         ui.page(Page::Pairing);
         return;
@@ -244,6 +248,9 @@ void setup() {
         d["bluetoothSecurityStatus"] = bluetooth.securityStatus();
         d["bluetoothSecurityEvents"] = bluetooth.securityEvents();
         d["bluetoothEncrypted"] = bluetooth.encrypted();
+        d["bluetoothAuthenticated"] = bluetooth.authenticatedLink();
+        d["bluetoothProtocol"] = 2;
+        d["bluetoothSecurityProfile"] = "sc-passkey-v1";
         d["bluetoothBonds"] = bluetooth.bonds();
         d["bluetoothAdvertising"] = bluetooth.advertising();
         d["bluetoothName"] = bluetooth.name();
@@ -303,6 +310,8 @@ void setup() {
 }
 void loop() {
     uint32_t loopStart = micros();
+    // BLE callbacks publish state only; all LVGL work stays on the main thread.
+    ui.nativePairing(bluetooth.nativePasskey());
     ui.pump();
     bluetooth.tick();
 

@@ -3,7 +3,7 @@
 Artwork you can wear. Choose an image, position it in a portrait badge preview,
 and upload it over Bluetooth. No account, native app, Wi-Fi setup, SD card or PSRAM.
 
-**[Open the companion editor](https://n0rule.github.io/LanyardBadge/)**
+**[Open the companion editor](https://n0rule.is-a.dev/LanyardBadge/)**
 
 The current firmware is 2.3.4. It targets the 4 MB ESP32 CYD2USB with ST7789 and
 XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
@@ -13,9 +13,11 @@ XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 1. New blank boards show a centered QR without requiring calibration. Scan it or
    open the editor manually. The badge advertises its device-specific BLE service.
 2. Choose **Connect your badge** in a supported secure Web Bluetooth browser.
-   A scanned QR supplies the pairing code; it is immediately removed from the URL.
-   On a desktop, type the four-letter code shown below the badge’s QR.
-   The editor appears after connection; empty cards start with a neutral gray preview.
+   On first connection, enter the fresh six-digit number displayed on the badge
+   into the browser’s native Bluetooth prompt. Reconnect reuses the saved OS bond.
+   A scanned QR supplies the separate editor access code and is immediately cleared
+   from the URL. Otherwise, enter the four-letter code below the badge’s QR.
+   The editor appears after authentication; empty cards start with a neutral gray preview.
 3. Choose artwork, rotate, fit/crop, zoom and drag it into position. The preview
    and final upload share the same transformation. Upload the card, then wear it.
 4. Swipe the physical artwork screen to change cards; hold it to open the menu.
@@ -27,9 +29,14 @@ Chrome/Edge on supported desktop or Android configurations can use Web Bluetooth
 iOS Safari is unsupported. Linux needs a running Bluetooth daemon and a pairing
 agent. Device discovery and pairing are real browser/OS prompts, not simulated
 connection states. USB firmware installation needs desktop Web Serial.
-On Linux, pair the badge once in system Bluetooth settings before browser
-connection. “Forget editors” on the badge rotates its code while retaining the OS
-bond, so this initial system pairing does not need to be repeated for revocation.
+Current firmware uses authenticated LE Secure Connections with a physical PIN;
+Windows pairing can complete directly from the browser, without Windows Settings
+or experimental flags. Helium on Windows was tested with the actual badge;
+Chrome/Edge and Android still need validation of this new security profile.
+Linux requires a working desktop pairing agent for its native prompt. Revoking
+editor access rotates the application code while retaining the OS bond.
+Older firmware uses Just Works pairing and remains supported by the editor,
+but upgrading through USB is recommended for reliable browser-first Windows pairing.
 
 Calibration is optional under **Settings → Advanced**. Hold the physical BOOT
 button two seconds to reopen the editor QR, or six seconds for touch recovery.

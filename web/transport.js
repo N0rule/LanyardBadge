@@ -194,7 +194,7 @@
       // The encrypted read completes link security before writing the
       // notification subscription. Fast reconnects can otherwise race bonding.
       this.change('pairing');
-      let securityRetries = 0;
+      const securityDeadline = Date.now() + 45000;
       let hello;
       for (;;) {
         try {
@@ -210,7 +210,8 @@
             !securityPending ||
             !this.device.gatt.connected ||
             session !== this.session ||
-            securityRetries++ >= 2
+            /denied|rejected|cancel/i.test(error.message) ||
+            Date.now() >= securityDeadline
           ) {
             error.bluetoothStage = !this.device.gatt.connected
               ? 'gatt'
@@ -228,6 +229,7 @@
         throw Object.assign(Error('This badge needs a compatible firmware update.'), {
           bluetoothStage: 'protocol',
         });
+      this.protocol = hello.getUint8(0);
       this.packetBytes = Math.min(512, Math.max(20, hello.getUint16(1, true) - 3));
       if (resubscribing) {
         // BlueZ/Chromium can retain a "notifying" flag after a peripheral

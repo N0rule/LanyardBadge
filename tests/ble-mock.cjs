@@ -71,6 +71,20 @@ function installMock(config = {}) {
       mock.securityFailures--;
       throw new DOMException('GATT Error Unknown.', 'UnknownError');
     }
+    if (config.passkey && !mock.nativeBonded) {
+      mock.passkeyRequested = true;
+      mock.nativePairingCount = (mock.nativePairingCount || 0) + 1;
+      await new Promise((resolve, reject) => {
+        mock.completeNativePairing = (accepted) => {
+          mock.passkeyRequested = false;
+          if (!accepted)
+            return reject(new DOMException('Bluetooth authentication rejected', 'SecurityError'));
+          mock.nativeBonded = true;
+          mock.passkeyRequested = false;
+          resolve();
+        };
+      });
+    }
     encryptedRead = true;
     return new DataView(Uint8Array.of(mock.protocol || 2, mock.mtu & 255, mock.mtu >> 8).buffer);
   };

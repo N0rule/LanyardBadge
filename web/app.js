@@ -65,9 +65,9 @@
   let windowsPairingHelp = false;
   function connectionMessage(error) {
     if (windows && (error.securityOperation || error.bluetoothStage === 'pairing'))
-      return `Encrypted Bluetooth pairing did not complete. Pair ${transport.device?.name || 'your badge'} once in Windows Settings → Bluetooth & devices → Add device → Bluetooth. Choose “Show all devices” if it is hidden, then reconnect here. Your edits are kept.`;
+      return 'Encrypted Bluetooth pairing did not complete. With current firmware, enter the six-digit number shown on the badge into the browser’s Bluetooth prompt. If the badge shows no number, update its firmware using USB. Your edits are kept.';
     if (error.bluetoothStage === 'pairing')
-      return 'Bluetooth security was rejected. Accept the system pairing request if one appears. If this badge was previously paired and still fails, remove its old system Bluetooth pairing once, then reconnect. Your edits are kept.';
+      return 'Bluetooth security was rejected. Start pairing again and enter the fresh six-digit number shown on the badge. Your edits are kept.';
     if (error.bluetoothStage === 'security-read')
       return 'The encrypted Bluetooth read failed. Keep the badge nearby and retry. If a system pairing request is open, complete it first. Your edits are kept.';
     if (['service', 'characteristic', 'protocol'].includes(error.bluetoothStage))
@@ -626,8 +626,11 @@
     !/Android/.test(navigator.userAgent)
   ) {
     $('compatibility').textContent =
-      'Your system may ask to authorize an encrypted Bluetooth connection the first time. Keep that request open while connecting.';
+      'For first-time Bluetooth pairing, enter the six-digit number shown on the badge into your browser’s Bluetooth prompt. The four-letter editor access code is a separate step.';
   }
+  if (windows)
+    $('compatibility').textContent =
+      'Connect here. For first-time Bluetooth pairing, enter the six-digit number shown on the badge into the browser’s Bluetooth prompt.';
   const defaultCompatibility = $('compatibility').textContent;
   $('card-form').onsubmit = (e) => e.preventDefault();
   $('title').oninput = (e) => {

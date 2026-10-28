@@ -1,6 +1,7 @@
 #include "Bluetooth.h"
 #include <algorithm>
 namespace badge {
+static_assert(MYNEWT_VAL(BLE_SM_SC_ONLY) == 1, "BLE must require Secure Connections");
 namespace {
 uint32_t get32(const uint8_t *p) {
     return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
@@ -21,9 +22,10 @@ bool Bluetooth::begin() {
     name_ = String("Badge-") + suffix;
     NimBLEDevice::init(name_.c_str());
     NimBLEDevice::setMTU(517);
-    // Encrypted GATT link, with the QR secret providing application-level ownership.
-    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
-    NimBLEDevice::setSecurityAuth(true, false, true);
+    // Authenticated LE Secure Connections; physical passkey entry establishes the link.
+    // The separate QR credential continues to authorize application ownership.
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
+    NimBLEDevice::setSecurityAuth(true, true, true);
     // Keep the host's actual security failure code after disconnection. The
     // server authentication callback exposes encryption state but not status.
     // This passive listener must never change GAP handling or expose key data.
@@ -43,10 +45,12 @@ bool Bluetooth::begin() {
     server_->advertiseOnDisconnect(true);
     auto *service = server_->createService(bleService);
     auto *rx = service->createCharacteristic(
-        bleReceive, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC, 512);
-    tx_ = service->createCharacteristic(
-        bleTransmit, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::NOTIFY,
-        512);
+        bleReceive,
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN, 512);
+    tx_ = service->createCharacteristic(bleTransmit,
+                                        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC |
+                                            NIMBLE_PROPERTY::READ_AUTHEN | NIMBLE_PROPERTY::NOTIFY,
+                                        512);
     rx->setCallbacks(this);
     tx_->setCallbacks(this);
     server_->start();
@@ -62,7 +66,7 @@ bool Bluetooth::begin() {
     return advertising->start();
 }
 String Bluetooth::pairingUrl() const {
-    return String("https://n0rule.github.io/LanyardBadge/#badge=") + name_ +
+    return String("https://n0rule.is-a.dev/LanyardBadge/#badge=") + name_ +
            "&code=" + settings_.pairingCode();
 }
 void Bluetooth::revoke() {
@@ -75,6 +79,8 @@ void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
     handle_ = info.getConnHandle();
     mtu_ = info.getMTU();
     initialInterval_ = info.getConnInterval();
+    nativePasskey_ = UINT32_MAX;
+    upgradeNeeded_ = upgradeAttempted_ = false;
     connected_ = true;
     ++generation_;
     // Let the central establish security when it accesses encrypted GATT.
@@ -82,6 +88,7 @@ void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
 }
 void Bluetooth::onDisconnect(NimBLEServer *, NimBLEConnInfo &, int reason) {
     disconnectReason_ = reason;
+    nativePasskey_ = UINT32_MAX;
     connected_ = false;
     ++generation_;
 }
@@ -89,13 +96,42 @@ float Bluetooth::intervalMs() const {
     return connected_ ? server_->getPeerInfoByHandle(handle_).getConnInterval() * 1.25f : 0;
 }
 void Bluetooth::onAuthenticationComplete(NimBLEConnInfo &info) {
+    nativePasskey_ = UINT32_MAX;
     if (!info.isEncrypted()) {
         server_->disconnect(info.getConnHandle());
+        return;
+    }
+    if (!info.isAuthenticated() || info.getSecKeySize() != 16) {
+        // An old Just Works bond may encrypt successfully but cannot access the
+        // authenticated characteristics. Request a standard security upgrade
+        // once, outside this callback; never serve application data at that level.
+        if (upgradeAttempted_)
+            server_->disconnect(info.getConnHandle());
+        else
+            upgradeNeeded_ = true;
         return;
     }
     // USB powered, no Wi-Fi coexistence: request 7.5–15 ms events for artwork.
     // The central can reject this request; transfer framing remains unchanged.
     server_->updateConnParams(info.getConnHandle(), 6, 12, 0, 400);
+}
+uint32_t Bluetooth::onPassKeyDisplay() {
+    // Rejection sampling avoids bias; Bluetooth is active, enabling the ESP32's
+    // hardware entropy source. Never persist or print this temporary passkey.
+    uint32_t value;
+    constexpr uint32_t limit = UINT32_MAX - (UINT32_MAX % 1000000U);
+    do {
+        value = esp_random();
+    } while (value >= limit);
+    const uint32_t passkey = value % 1000000U;
+    nativeStarted_ = millis();
+    nativePasskey_ = passkey;
+    return passkey;
+}
+void Bluetooth::cancelNativePairing() {
+    nativePasskey_ = UINT32_MAX;
+    if (connected_ && server_)
+        server_->disconnect(handle_);
 }
 void Bluetooth::onMTUChange(uint16_t mtu, NimBLEConnInfo &) {
     mtu_ = mtu;
@@ -355,6 +391,13 @@ void Bluetooth::transmit() {
 void Bluetooth::tick() {
     if (!queue_)
         return;
+    if (nativePasskey_ < 1000000U && millis() - nativeStarted_ > 60000U)
+        cancelNativePairing();
+    if (connected_ && upgradeNeeded_.exchange(false)) {
+        upgradeAttempted_ = true;
+        if (!NimBLEDevice::startSecurity(handle_))
+            server_->disconnect(handle_);
+    }
     uint32_t gen = generation_;
     if (gen != seenGeneration_) {
         reset();
