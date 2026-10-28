@@ -1,71 +1,94 @@
-# GIF support: preparation foundation
+# GIF artwork
 
-Status: frame preparation is implemented and tested. The release editor still
-accepts still artwork only. Animation storage, BLE ingestion, firmware playback
-and animated editing are not enabled. No GIF is silently uploaded as a still card.
+The editor accepts animated GIFs on badges reporting `animationFormat: 1`.
+Choose a GIF, adjust crop/fit/zoom/rotation like a still image, then upload the
+card. The preview animates and has Pause/Play/Replay controls. Reduced-motion
+preferences start the preview paused; hidden tabs, disconnected editors, uploads
+and inactive workspaces pause decoding. The badge plays the saved animation,
+including finite loops, and holds its last frame when finished. Menus, pairing,
+sleep and uploads retain ownership of the display; returning to the card restarts
+from its complete first frame.
 
-## Implemented
+Existing badges need the new USB firmware before accepting GIF uploads. The site
+checks the advertised capability and retains the previous source if GIF selection
+fails. Old BMP cards, card IDs, metadata version 2, GATT wire versions 1/2 and the
+flash layout remain compatible. An older website cannot preview LBA1 artwork;
+refresh after saving edits to use the updated, revisioned editor assets.
 
-`web/gif.js` exposes `BadgeGIF.prepare(blob, onFrame, options)` for the next
-animation integration. It is intentionally not loaded by `index.html` yet.
+## Limits and memory
 
-- Feature-detects native WebCodecs GIF decoding. Unsupported browsers get an
-  explicit error; no first-frame-only fallback impersonates animation support.
-- Validates the GIF signature and logical dimensions before decoding. Initial
-  preparation limits are 30 MB input, 16 million source pixels, 300 frames and
-  30 seconds per cycle. These are browser preparation limits, not a promise that
-  the badge has room for the resulting animation.
-- Uses native GIF compositing, including transparency and restore-to-previous /
-  restore-to-background disposal, before applying the same `BadgeArtwork.draw`
-  crop, fit, zoom, rotation and position pipeline as still images.
-- Shares RGB565 quantization with the existing BMP exporter. Each output rectangle
-  contains top-down row-major `Uint16Array` color values, not a wire format.
-- Emits a full first frame, then the bounding rectangle of changed pixels.
-  Unchanged frames have a zero-area rectangle and retain their duration. This
-  lets a future player leave unchanged display pixels alone.
-- Awaits each sink callback before decoding another frame. The application closes
-  each native frame/bitmap and holds one previous prepared frame for differencing.
-  Browser decoder internal caching remains implementation-dependent.
-- Preserves per-frame delays with a 20 ms floor and a 100 ms fallback when the
-  decoder supplies no duration. Repetition metadata is retained (`Infinity`
-  denotes indefinite repetition). Actual ESP32 pacing still needs measurement.
-- Snapshots the transform for a complete preparation operation. Supports
-  cancellation and closes the decoder on success, abort or callback failure.
+GIF input is limited to 30 MB, 16 million source pixels, 300 frames and 30 seconds
+per cycle. Source dimensions times frame count must not exceed 64 million decoded
+pixels to bound decoder caching. Native WebCodecs GIF support is feature-detected;
+unsupported browsers receive an explicit error without a first-frame fallback.
+Frame delays have a 20 ms floor and a 100 ms fallback for missing durations.
+Native decoding handles transparency and GIF disposal before applying the common
+artwork transform and RGB565 quantization.
 
-A sink receives `{index, frameCount, durationMs, x, y, width, height, pixels}`.
-It must stage its output and commit **only after `prepare` resolves**. A later
-frame may exceed the duration limit or fail to decode; partial output must then
-be discarded. The sink owns the emitted rectangle array and may retain it.
+Prepared assets must fit 1 MiB and the badge's available storage, with 32 KiB
+reserved for metadata and recovery. Shorter/simpler GIFs fit better. This is not a
+promise that every 30 MB GIF will fit on a 4 MB/no-PSRAM device. Compression uses
+raw pixels or run-length encoding per changed rectangle, whichever is smaller.
+The browser retains the original GIF Blob throughout an unsaved editing session;
+it does not replace it with its first frame or close it during re-pairing.
+Committed artwork may be reopened from a validated, credential-scoped cache as
+an editable animation, with further adjustments applied to every frame.
 
-## Next integration boundary
+The ESP32 uses the existing 15,360-byte display stripe buffer plus a 512-byte
+reader cache. It never allocates a 153,600-byte framebuffer or keeps all frames
+in RAM. Playback schedules from the start of each frame, does not skip dependent
+delta frames, and slows when decoding/SPI work exceeds the source delay. Actual
+frame time is available as `animationMaxFrameUs`; source timing is not a guarantee
+of a fixed hardware frame rate.
 
-A raw 240 × 320 RGB565 frame is 153,600 bytes. The live board has no PSRAM and
-reported a 61,428-byte largest free heap block during upload verification. Full
-framebuffers and an unexamined GIF decoder are therefore unsuitable defaults.
+## LBA1 storage format
 
-The proposed next step is a versioned animation file with bounded frame records,
-validated rectangles/durations, integrity checks and compression that can decode
-into the existing 32-row stripe buffer. The format is deliberately not frozen by
-this preparation module. It must be checked for worst-case size and per-frame SPI
-cost before exposing GIF selection. Storage validation, metadata migration,
-variable-size BLE transfer bounds, loop/reset semantics, sleep/menu ownership and
-interruption recovery all need end-to-end testing on the badge.
+This is a versioned display-ready asset, not a GIF file or a cryptographic protocol.
+All numeric values are little-endian. RGB565 pixels are top-down, row-major.
+The first frame covers 240 × 320; later frames replace only their changed rectangle.
+Unchanged frames use x=y=width=height=payload length=encoding=0 and retain their delay.
 
-## Evidence and sources
+| Header offset | Value |
+| --- | --- |
+| 0 | `LBA1` magic, 4 bytes |
+| 4, 6 | width=240, height=320, uint16 |
+| 8 | frame count, uint16 (1–300) |
+| 10 | total plays, uint16; 0 means infinite |
+| 12 | complete file size, uint32 (at most 1 MiB) |
+| 16 | sum of frame delays in milliseconds, uint32 (at most 30,000) |
+| 20 | CRC-32/IEEE of bytes 32 through EOF, uint32 |
+| 24 | CRC-32/IEEE of header bytes 0–23, uint32 |
+| 28 | reserved uint32, must be zero |
 
-`tests/fixtures/disposal.gif` is a local four-frame test with disposal methods
-1, 3, 2 and 1, transparency, finite repetition and unequal delays. Its exact decoded
-RGBA oracle is retained in `disposal.json`; regenerate both with
-`scripts/generate_gif_fixture.py` and Pillow 13.0.0. CI uses the checked-in files
-without adding a Pillow dependency. Chromium's real ImageDecoder output is
-transformed and compared pixel-for-pixel with that oracle, then reconstructed
-from the emitted delta rectangles. No decoder API is mocked for that test.
-Node tests check dimension limits, first/unchanged frames, rectangle reconstruction
-and exact quantization parity with still BMPs. The normal editor also rejects GIF
-files, including renamed files, while retaining current edits.
+Each frame has a 16-byte record: x/y/width/height/delay/encoding (six uint16 values),
+then payload size (uint32). Delay is 20–30,000 ms. Encoding 0 contains exactly
+width×height little-endian uint16 pixels. Encoding 1 contains `(run length, color)`
+uint16 pairs, with nonzero lengths totaling exactly width×height. Runs may cross
+rows/stripes. The decoder rejects zero runs, excess/short output, unknown encodings,
+invalid rectangles, trailing bytes, inconsistent duration, and CRC failures.
+CRC detects corruption; confidentiality and authentication remain provided by the
+existing authenticated encrypted BLE link and application ownership check.
 
-The implementation was checked against the primary
-[WebCodecs image-decoding specification](https://www.w3.org/TR/webcodecs/#image-decoding)
-and the [GIF89a format specification](https://giflib.sourceforge.net/gifstandard/GIF89a.html).
-This is browser preparation evidence; GIF playback has not been tested on the
-ESP32 because no firmware player is enabled yet.
+Authenticated `POST /api/animations` stages variable-size uploads. Only a complete,
+validated file is atomically renamed from `/upload.tmp` to `/img-<id>.lba`. A failed
+upload never changes committed metadata. Metadata commit still checks revision,
+asset existence and artwork mode. Garbage collection preserves current and backup
+manifest assets for both `.bmp` and `.lba` files. `GET /api/image` returns the original
+asset bytes; status supplies `artworkSizes` for bounded range reads. Cached assets
+validate format and digest before use. Asset IDs and metadata remain unchanged.
+
+## Validation
+
+Host C++ ASan/UBSan tests reconstruct raw/RLE/delta/unchanged frames through a
+three-row buffer, test loop reset, every truncated/corrupted byte in a fixture,
+malformed structural fields and variable-size range bounds. Node tests independently
+check CRC, parser bounds, corruption and exact RGB565/rectangle behavior.
+Chromium tests use its real ImageDecoder against the local GIF disposal oracle.
+Mock-GATT tests cover animated preview, transforms, upload, finite loops/delays,
+cache reconnect and page refresh, re-export of cached animations, ownership-key
+revocation, unsupported decoding, and avoiding artwork reupload for title-only saves.
+Mocks do not establish radio performance. Hardware and deployment results are
+recorded in [the UI/GIF release record](UI-GIF.md).
+
+Sources: [WebCodecs image decoding](https://www.w3.org/TR/webcodecs/#image-decoding)
+and [GIF89a](https://giflib.sourceforge.net/gifstandard/GIF89a.html).

@@ -3,6 +3,20 @@ const fs = require('node:fs');
 require('../web/codec.js');
 require('../web/gif.js');
 const { header, difference } = BadgeGIF;
+assert.equal(BadgeGIF.crc(Buffer.from('123456789')), 0xcbf43926);
+const animation = fs.readFileSync('tests/fixtures/animation.lba');
+const asset = animation.buffer.slice(
+  animation.byteOffset,
+  animation.byteOffset + animation.byteLength,
+);
+assert.equal(BadgeGIF.parse(asset).durationMs, 360);
+assert.equal(BadgeGIF.parse(asset).plays, 2);
+for (let i = 0; i < animation.length; i++) {
+  const corrupt = asset.slice(0);
+  new Uint8Array(corrupt)[i] ^= 1;
+  assert.throws(() => BadgeGIF.parse(corrupt), /Invalid or damaged/);
+  assert.throws(() => BadgeGIF.parse(asset.slice(0, i)), /Invalid or damaged/);
+}
 assert.deepEqual(header(new Uint8Array(fs.readFileSync('tests/fixtures/disposal.gif'))), {
   width: 8,
   height: 8,

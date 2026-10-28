@@ -405,8 +405,13 @@ progress::-webkit-progress-value {
   border-radius: 6px;
 }
 .preview-space {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
   text-align: center;
-  padding: 34px 24px 48px;
+  padding: 36px 24px;
   background: var(--panel);
   border-left: 1px solid var(--line);
 }
@@ -415,12 +420,16 @@ progress::-webkit-progress-value {
   margin-bottom: 10px;
   overflow-wrap: anywhere;
 }
+.preview-heading {
+  width: 100%;
+}
 .preview-heading p {
   font-size: 12px;
   color: var(--muted);
   margin: 0;
 }
 .badge-object {
+  flex: none;
   display: inline-flex;
   padding: 14px;
   background: #26282c;
@@ -450,6 +459,10 @@ progress::-webkit-progress-value {
   margin: 0 auto 24px;
   font-size: 11px;
   color: var(--muted);
+}
+.preview-caption .text-button {
+  display: block;
+  margin: 4px auto 0;
 }
 #save-state.unsaved {
   color: var(--unsaved);
@@ -560,6 +573,7 @@ output {
   gap: 10px;
 }
 .upload-state {
+  width: 100%;
   max-width: 290px;
   margin: 24px auto 0;
   text-align: left;

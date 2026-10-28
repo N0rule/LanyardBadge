@@ -92,6 +92,11 @@
         throw Error('Text elements need 1–96 supported characters');
   }
   globalThis.BadgeCodec = {
+    validateArtwork(buffer) {
+      if (buffer.byteLength >= 4 && new DataView(buffer).getUint32(0, false) === 0x4c424131)
+        return BadgeGIF.parse(buffer);
+      return validateBMP(buffer);
+    },
     cropRect,
     encodeBMP,
     decodeBMP,

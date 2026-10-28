@@ -263,16 +263,18 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
             fail(401, "Scan your badge QR to pair again");
             return;
         }
-        uploading_ = path_ == "/api/assets" && method_ == "POST";
+        bool animation = path_ == "/api/animations";
+        uploading_ = (path_ == "/api/assets" || animation) && method_ == "POST";
         if ((pairing && length_ > 256) || (!uploading_ && length_ > 24576) ||
-            (uploading_ && length_ != bitmapBytes)) {
+            (uploading_ && (animation ? (length_ < 48 || length_ > maxAnimationBytes)
+                                      : length_ != bitmapBytes))) {
             uploading_ = false;
             fail(413, "Transfer length is invalid");
             return;
         }
         if (uploading_) {
             String error;
-            if (!assets_.beginUpload(error)) {
+            if (!assets_.beginUpload(error, length_, animation)) {
                 uploading_ = false;
                 fail(507, error.c_str());
                 return;
@@ -329,7 +331,11 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
             answer(201, String("{\"id\":\"") + id + "\"}");
         } else if (method_ == "GET" && path_.startsWith("/api/image?id=")) {
             ImageRead read;
-            if (!imageRead(path_.c_str() + 14, read)) {
+            char id[9]{};
+            if (path_.length() >= 22)
+                memcpy(id, path_.c_str() + 14, 8);
+            uint32_t size = assets_.imageSize(id);
+            if (!size || !imageRead(path_.c_str() + 14, read, size)) {
                 fail(422, "Invalid artwork read range");
                 return;
             }

@@ -314,6 +314,16 @@ bool Ui::streamArtwork() {
     auto &c = assets_.deck.cards[selected_];
     if (strcmp(c.mode, "artwork") || !assets_.bitmapExists(c.image))
         return false;
+    if (assets_.isAnimation(c.image)) {
+        animationFile_ = LittleFS.open(assets_.imagePath(c.image), "r");
+        animationPlays_ = 0;
+        animationError_ = false;
+        if (!animationFile_ || !animationDecoder_.begin(animationFile_) || !animationFrame()) {
+            animationFile_.close();
+            return false;
+        }
+        return true;
+    }
     auto file = LittleFS.open(assets_.imagePath(c.image), "r");
     uint8_t header[66];
     if (!file || file.read(header, 66) != 66 || !validBitmap(header, 66, file.size()))
@@ -334,6 +344,47 @@ bool Ui::streamArtwork() {
     }
     artworkUs_ = micros() - started;
     return true;
+}
+bool Ui::animationFrame() {
+    uint32_t started = micros(), now = millis();
+    AnimationFrame frame;
+    bool ok = animationDecoder_.next(
+        animationFile_, reinterpret_cast<uint16_t *>(buffer), sizeof(buffer) / 2, frame,
+        [&](unsigned x, unsigned y, unsigned w, unsigned h, uint16_t *pixels) {
+            lv_area_t area{int32_t(x), int32_t(y), int32_t(x + w - 1), int32_t(y + h - 1)};
+            display_.flushArea(&area, reinterpret_cast<uint8_t *>(pixels));
+            touch_.poll();
+            yield();
+            return true;
+        });
+    if (!ok) {
+        animationError_ = true;
+        animationFile_.close();
+        return false;
+    }
+    ++animationFrames_;
+    animationMaxUs_ = std::max(animationMaxUs_, uint32_t(micros() - started));
+    animationDue_ = now + frame.delay;
+    return true;
+}
+void Ui::animate() {
+    if (!animationFile_ || page_ != Page::Badge || !direct_ || busy_ || touch_.down() ||
+        int32_t(millis() - animationDue_) < 0)
+        return;
+    if (animationDecoder_.finished()) {
+        // Zero means repeat indefinitely. Finite GIFs hold their last frame.
+        if (animationDecoder_.header().plays &&
+            ++animationPlays_ >= animationDecoder_.header().plays) {
+            animationFile_.close();
+            return;
+        }
+        if (!animationDecoder_.begin(animationFile_)) {
+            animationError_ = true;
+            animationFile_.close();
+            return;
+        }
+    }
+    animationFrame();
 }
 #if defined(BADGE_DIAGNOSTICS) && BADGE_DIAGNOSTICS
 void Ui::benchmark(bool streaming) {
@@ -389,6 +440,10 @@ void Ui::benchmarkMenu() {
 }
 #endif
 void Ui::diagnostics(JsonDocument &d) const {
+    d["animationPlaying"] = bool(animationFile_);
+    d["animationFrames"] = animationFrames_;
+    d["animationMaxFrameUs"] = animationMaxUs_;
+    d["animationError"] = animationError_;
     d["uploadStage"] = uploadPhaseName(uploadPhase_);
     d["uploadPercent"] = uploadPercent_;
     d["screenAsleep"] = activity_.asleep();
@@ -442,6 +497,7 @@ void Ui::updateControls() {
 }
 void Ui::render() {
     dirty_ = false;
+    animationFile_.close();
     direct_ = false;
     renderedPage_ = page_;
     renderedTheme_ = settings_.value.darkMode;
@@ -742,6 +798,7 @@ void Ui::tick() {
         } else
             render();
     }
+    animate();
 }
 void Ui::pump() {
     tick();

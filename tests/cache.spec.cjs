@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
+const fs = require('fs');
 const installMock = require('./ble-mock.cjs');
 require('../web/codec.js');
 const rgba = new Uint8ClampedArray(240 * 320 * 4);
@@ -30,6 +31,20 @@ async function setup(page, extra = {}) {
   await expect(page.locator('#studio')).toBeVisible();
   await page.waitForFunction(() => !!BadgeEditor.state);
 }
+test('committed animations survive refresh through the validated cache and variable-size range transport', async ({
+  page,
+}) => {
+  const animation = Array.from(fs.readFileSync(path.join(__dirname, 'fixtures/animation.lba')));
+  await setup(page, { images: { 12345678: animation }, ranges: true });
+  await expect(page.locator('#artwork-status')).toHaveText('GIF animation · 3 frames');
+  expect(
+    await page.evaluate(() => bleMock.requests.filter((p) => p.startsWith('/api/image'))),
+  ).toEqual(['/api/image?id=12345678&offset=0&length=96']);
+  await page.reload();
+  await expect(page.locator('#studio')).toBeVisible();
+  await expect(page.locator('#artwork-status')).toHaveText('GIF animation · 3 frames');
+  expect(await page.evaluate(() => bleMock.requests)).toEqual(['/api/pair']);
+});
 test('refresh reuses validated browser artwork with fresh metadata and no image transfer', async ({
   page,
 }) => {

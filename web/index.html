@@ -11,6 +11,7 @@
     <script defer src="./codec.js"></script>
     <script defer src="./cache.js"></script>
     <script defer src="./artwork.js"></script>
+    <script defer src="./gif.js"></script>
     <script defer src="./transport.js"></script>
     <script defer src="./app.js"></script>
   </head>
@@ -86,6 +87,15 @@
         </div>
         <div class="preview-caption">
           <span id="save-state">Choose artwork to begin</span>
+          <button
+            id="animation-toggle"
+            class="text-button"
+            type="button"
+            aria-pressed="true"
+            hidden
+          >
+            Pause animation
+          </button>
         </div>
         <div class="publish-actions">
           <button id="save-card" class="primary">Upload card</button
@@ -111,8 +121,12 @@
               <path d="m4 18 6-6 4 4 3-3 4 4" />
             </svg>
             <strong id="artwork-action">Choose artwork</strong>
-            <span id="artwork-status">PNG, JPEG, WebP or BMP</span>
-            <input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" />
+            <span id="artwork-status">PNG, JPEG, WebP, BMP or GIF</span>
+            <input
+              id="image-file"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/bmp,image/gif"
+            />
           </label>
           <label
             >Card title<input

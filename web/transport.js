@@ -33,13 +33,17 @@
     getCards() {
       return this.json('/api/cards');
     }
-    uploadCard(body, progress) {
-      return this.request('/api/assets', { method: 'POST', body, raw: true, progress }).then((r) =>
-        r.json(),
-      );
+    uploadCard(body, progress, animation = false) {
+      return this.request(animation ? '/api/animations' : '/api/assets', {
+        method: 'POST',
+        body,
+        raw: true,
+        progress,
+      }).then((r) => r.json());
     }
-    async getArtwork(id, { rangeBytes = 0, signal, onProgress } = {}) {
-      const total = 153666;
+    async getArtwork(id, { rangeBytes = 0, signal, onProgress, total = 153666 } = {}) {
+      if (!Number.isInteger(total) || total < 48 || total > 1024 * 1024)
+        throw Error('Invalid badge artwork size.');
       signal?.throwIfAborted();
       if (!rangeBytes) {
         const response = await this.request('/api/image?id=' + id);
@@ -382,7 +386,7 @@
         return;
       }
       if (op === 1) {
-        if (at > 256000 || v.byteLength !== 9) {
+        if (at > 1024 * 1024 || v.byteLength !== 9) {
           p?.reject(Error('Invalid badge response'));
           return;
         }

@@ -247,6 +247,14 @@ JsonDocument Network::statusDocument() const {
     JsonDocument d;
     d["firmware"] = "2.3.4";
     d["imageReadMax"] = imageReadMax;
+    d["animationFormat"] = 1;
+    d["maxAnimationBytes"] = maxAnimationBytes;
+    auto sizes = d["artworkSizes"].to<JsonObject>();
+    for (unsigned i = 0; i < assets_.deck.count; ++i) {
+        const auto *id = assets_.deck.cards[i].image;
+        if (id[0])
+            sizes[id] = assets_.imageSize(id);
+    }
     d["arduino"] = ESP_ARDUINO_VERSION_STR;
     d["heap"] = ESP.getFreeHeap();
     d["minHeap"] = ESP.getMinFreeHeap();

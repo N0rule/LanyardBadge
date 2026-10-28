@@ -166,7 +166,9 @@ previously saved cards start from their flattened on-device artwork.
 
 Disconnected visitors see a landing page with Connect and Install firmware only;
 the editor is hidden before first paint. Connection exposes the gallery/editor.
-Empty previews use theme-independent neutral gray, without sample artwork. Saved
+Empty editor previews use theme-independent neutral gray. Freshly provisioned,
+verified blank boards receive an original geometric First light BMP; existing
+filesystems and intentionally empty collections are never reseeded. Saved
 cards remain intact. Disconnect hides the editor while retaining unsaved state
 for reconnect. Light mode uses white surfaces; device theme is independent.
 Device submenu arrows return to their parent, and only the main menu closes to
@@ -250,3 +252,18 @@ its full-file path. First uncached previews still need one complete image transf
 range framing adds overhead in exchange for responsiveness. Partial images are
 never installed or cached. Current client transforms/generation checks prevent a
 late download from overwriting newer edits.
+
+
+## Animated artwork and preview alignment
+
+The preview column is a centered flex group, including the heading, badge,
+save-state, animation control, upload actions and progress. The group is centered
+vertically in the available desktop column; mobile content remains naturally
+sized and scrollable. Browser geometry tests cover desktop, tablet and mobile.
+
+GIF input uses native compositing and the shared artwork transform, then encodes
+a size-bounded LBA1 asset. The firmware validates complete temporary uploads and
+streams decoded stripes through the existing display buffer. Menu/upload/pairing
+views and sleeping pause display ownership; returning to a card begins with its
+full first frame. Source GIFs and cached committed animations follow the existing
+per-device draft and credential-cache lifecycles. See [GIF support](GIF.md).

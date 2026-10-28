@@ -79,10 +79,11 @@ struct ImageRead {
     uint32_t offset = 0, length = bitmapBytes;
     bool ranged = false;
 };
-inline bool imageRead(const char *query, ImageRead &out) {
+inline bool imageRead(const char *query, ImageRead &out, uint32_t total = bitmapBytes) {
     if (!query || strlen(query) < 8)
         return false;
     ImageRead result;
+    result.length = total;
     memcpy(result.id, query, 8);
     if (!validId(result.id))
         return false;
@@ -97,7 +98,7 @@ inline bool imageRead(const char *query, ImageRead &out) {
             value = 0;
             while (*p >= '0' && *p <= '9') {
                 unsigned digit = *p++ - '0';
-                if (value > (bitmapBytes - digit) / 10)
+                if (value > total / 10 || (value == total / 10 && digit > total % 10))
                     return false;
                 value = value * 10 + digit;
             }
@@ -107,7 +108,7 @@ inline bool imageRead(const char *query, ImageRead &out) {
             return false;
         p += 8;
         if (!decimal(result.length) || *p || !result.length || result.length > imageReadMax ||
-            result.offset >= bitmapBytes || result.length > bitmapBytes - result.offset)
+            result.offset >= total || result.length > total - result.offset)
             return false;
         result.ranged = true;
     }

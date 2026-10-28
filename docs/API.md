@@ -67,6 +67,7 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 | GET `/api/status`            | Diagnostics, storage, settings, current selection, sleep/BLE state                                   |
 | GET `/api/cards`             | `{version:2,revision,cards:[...]}`                                                                   |
 | POST `/api/cards`            | Complete deck with matching revision → committed deck                                                |
+| POST `/api/animations`      | Validated LBA1 bytes (48–1,048,576); requires advertised `animationFormat:1` → `{id}` |
 | POST `/api/assets`           | Exactly 153666 RGB565 BMP bytes → `{id}`                                                             |
 | GET `/api/image?id=xxxxxxxx` | Validated image ID → BMP bytes                                                                       |
 | POST `/api/select`           | `{id}` → device status                                                                               |
@@ -108,3 +109,14 @@ successful security state change; also inspect `bluetoothEncrypted` and
 peer SMP 0x500. For example, 0x50C is a peer SMP Numeric Comparison Failed rejection.
 These diagnostic values contain no keys, tokens, PINs, or peer addresses. Older
 firmware can omit both fields; older clients may ignore them.
+
+
+### Animated artwork capability
+
+Current status includes `animationFormat:1`, `maxAnimationBytes:1048576` and an
+`artworkSizes` object mapping committed asset IDs to byte sizes. Old firmware omits
+these fields; clients must gate GIF upload on the explicit capability. Card image
+IDs and metadata version 2 are unchanged. `/api/image` can return BMP or LBA1 data;
+range validation uses the actual immutable file size. See [LBA1](GIF.md) for the
+validated file format, timing semantics and bounds. Animation uploads retain the
+same encrypted/authenticated characteristic and application-token requirements.

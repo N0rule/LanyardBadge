@@ -29,6 +29,11 @@ function installMock(config = {}) {
       autoplay: false,
       rotation: 0,
       defaultCard: base.id,
+      animationFormat: config.animationFormat ?? 1,
+      maxAnimationBytes: 1024 * 1024,
+      artworkSizes: Object.fromEntries(
+        Object.entries(config.images || {}).map(([id, bytes]) => [id, bytes.length]),
+      ),
     },
     images: config.images || {},
     requests: [],
@@ -218,9 +223,11 @@ function installMock(config = {}) {
           mock.data.push(...data);
           emit(0, mock.data.length);
         } else if (op === 3) {
-          if (request.path === '/api/assets') {
+          if (request.path === '/api/assets' || request.path === '/api/animations') {
             mock.uploads.push(new Uint8Array(mock.data));
             mock.images.abcdef01 = mock.data.slice();
+            mock.status.artworkSizes.abcdef01 = mock.data.length;
+            mock.lastUploadPath = request.path;
             return answer(201, { id: 'abcdef01' });
           }
           finish();

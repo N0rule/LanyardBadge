@@ -154,6 +154,27 @@ test('metadata failure retains transform and uploaded asset for retry', async ({
   expect(await page.evaluate(() => bleMock.uploads.length)).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('unsupported GIF decoding keeps the previous original artwork and dirty title', async ({
+  page,
+}) => {
+  await setup(page);
+  await connect(page);
+  await image(page);
+  await page.locator('#title').fill('Keep my static source');
+  await page.evaluate(() => {
+    globalThis.previousGIFSelection = BadgeEditor.state.image;
+    globalThis.ImageDecoder = undefined;
+  });
+  await page.locator('#image-file').setInputFiles(path.join(__dirname, 'fixtures/disposal.gif'));
+  await expect(page.locator('#toast')).toContainText('cannot prepare animated GIFs');
+  await expect(page.locator('#title')).toHaveValue('Keep my static source');
+  expect(
+    await page.evaluate(
+      () => BadgeEditor.changed && BadgeEditor.state.image === previousGIFSelection,
+    ),
+  ).toBe(true);
+});
 test('mobile pointer dragging, page width, keyboard, and fit/rotation', async ({ page }) => {
   const errors = await setup(page, { mobile: true });
   await image(page);
@@ -588,8 +609,10 @@ test('a stale connected handle lost during encrypted read retries the same grant
   expect(errors).toEqual([]);
 });
 
-test('GIF files cannot silently replace artwork with only their first frame', async ({ page }) => {
-  const errors = await setup(page);
+test('legacy firmware rejects GIF upload without replacing the existing artwork', async ({
+  page,
+}) => {
+  const errors = await setup(page, { mockOptions: { animationFormat: 0 } });
   await image(page);
   const before = await page.locator('#preview').evaluate((c) => c.toDataURL());
   const buffer = fs.readFileSync(path.join(__dirname, 'fixtures/disposal.gif'));
@@ -599,11 +622,146 @@ test('GIF files cannot silently replace artwork with only their first frame', as
   ]) {
     await page.locator('#image-file').setInputFiles({ name, mimeType, buffer });
     await expect(page.locator('#image-file')).toHaveValue('');
-    await expect(page.locator('#toast')).toContainText('Animated cards are not supported');
+    await expect(page.locator('#toast')).toContainText('Update your badge firmware');
     expect(await page.locator('#preview').evaluate((c) => c.toDataURL())).toBe(before);
     await expect(page.locator('#save-card')).toBeEnabled();
   }
   expect(errors).toEqual([]);
+});
+
+test('GIF preview, adjustments, animation upload and cached reconnect retain all frames', async ({
+  page,
+}) => {
+  const errors = await setup(page, { mockOptions: { mtu: 517, snapshot: true } });
+  await connect(page);
+  await page.locator('#image-file').setInputFiles({
+    name: 'disposal.gif',
+    mimeType: 'image/gif',
+    buffer: fs.readFileSync(path.join(__dirname, 'fixtures/disposal.gif')),
+  });
+  await expect(page.locator('#artwork-status')).toHaveText('GIF animation · 4 frames');
+  const first = await page.locator('#preview').evaluate((c) => c.toDataURL());
+  await expect.poll(() => page.locator('#preview').evaluate((c) => c.toDataURL())).not.toBe(first);
+  await page.locator('#animation-toggle').click();
+  await expect(page.locator('#animation-toggle')).toHaveText('Play animation');
+  await page.locator('#fit').selectOption('contain');
+  await page.locator('#rotate-right').click();
+  await page.locator('#title').fill('Moving artwork');
+  await page.locator('#save-card').click();
+  await expect(page.locator('#save-state')).toHaveText('Card uploaded');
+  const report = await page.evaluate(() => {
+    const bytes = bleMock.uploads[0].buffer;
+    const animation = BadgeGIF.parse(bytes);
+    return {
+      path: bleMock.lastUploadPath,
+      frames: animation.frames.length,
+      duration: animation.durationMs,
+      delays: animation.frames.map((f) => f.durationMs),
+      plays: animation.plays,
+      original: BadgeEditor.state.animationSource instanceof Blob,
+    };
+  });
+  expect(report).toEqual({
+    path: '/api/animations',
+    frames: 4,
+    duration: 560,
+    delays: [80, 120, 160, 200],
+    plays: 3,
+    original: true,
+  });
+  await page.evaluate(() => badgeDevice.disconnect());
+  await connect(page);
+  await expect(page.locator('#artwork-status')).toHaveText('GIF animation · 4 frames');
+  expect(
+    await page.evaluate(() => bleMock.requests.filter((p) => p.startsWith('/api/image')).length),
+  ).toBe(0);
+  await page.locator('#title').fill('Only the title changed');
+  await page.locator('#save-card').click();
+  await expect(page.locator('#save-state')).toHaveText('Card uploaded');
+  expect(await page.evaluate(() => bleMock.uploads.length)).toBe(1);
+  await page.locator('#rotate-right').click();
+  await page.locator('#save-card').click();
+  await expect(page.locator('#save-state')).toHaveText('Card uploaded');
+  expect(
+    await page.evaluate(() => ({
+      uploads: bleMock.uploads.length,
+      frames: BadgeGIF.parse(bleMock.uploads[1].buffer).frames.length,
+      duration: BadgeGIF.parse(bleMock.uploads[1].buffer).durationMs,
+    })),
+  ).toEqual({ uploads: 2, frames: 4, duration: 560 });
+  expect(errors).toEqual([]);
+});
+
+test('unsaved original GIF and transforms survive revoked credentials and manual re-pair', async ({
+  page,
+}) => {
+  const errors = await setup(page, { mockOptions: { mtu: 517 } });
+  await connect(page);
+  await page.locator('#image-file').setInputFiles(path.join(__dirname, 'fixtures/disposal.gif'));
+  await expect(page.locator('#artwork-status')).toContainText('4 frames');
+  await page.locator('#title').fill('Keep every frame');
+  await page.locator('#zoom-value').fill('140');
+  await page.locator('#rotate-right').click();
+  await page.evaluate(() => {
+    globalThis.originalGIF = BadgeEditor.state.animationSource;
+    globalThis.originalGIFCanvas = BadgeEditor.state.image;
+    bleMock.password = 'qrstuvwxyz234567';
+    badgeDevice.disconnect();
+  });
+  await page.locator('#connect').click();
+  await expect(page.locator('#pair-dialog')).toBeVisible();
+  await page.locator('#pair-password').fill('abcd');
+  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#title')).toHaveValue('Keep every frame');
+  expect(
+    await page.evaluate(() => ({
+      same:
+        BadgeEditor.state.animationSource === originalGIF &&
+        BadgeEditor.state.image === originalGIFCanvas,
+      rotation: BadgeEditor.state.rotation,
+      zoom: BadgeEditor.state.zoom,
+      dirty: BadgeEditor.changed,
+    })),
+  ).toEqual({ same: true, rotation: 90, zoom: 1.4, dirty: true });
+  expect(errors).toEqual([]);
+});
+
+test('preview group shares its horizontal and vertical center during upload on desktop and mobile', async ({
+  page,
+}) => {
+  await setup(page);
+  await connect(page);
+  for (const viewport of [
+    { width: 1360, height: 1000 },
+    { width: 780, height: 1000 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => {
+      document.querySelector('#upload-state').hidden = false;
+      document.querySelector('#upload-label').textContent = 'Uploading card… 66%';
+      document.querySelector('#upload-progress').value = 66;
+    });
+    const bounds = await page.evaluate(() => {
+      const rect = (s) => document.querySelector(s).getBoundingClientRect();
+      const section = rect('.preview-space'),
+        heading = rect('.preview-heading'),
+        upload = rect('#upload-state');
+      return {
+        center: section.x + section.width / 2,
+        children: ['.preview-heading', '.badge-object', '.publish-actions', '#upload-state'].map(
+          (s) => {
+            const b = rect(s);
+            return b.x + b.width / 2;
+          },
+        ),
+        vertical: (heading.y + upload.bottom) / 2 - (section.y + section.height / 2),
+      };
+    });
+    for (const center of bounds.children) expect(Math.abs(center - bounds.center)).toBeLessThan(1);
+    expect(Math.abs(bounds.vertical)).toBeLessThan(2);
+  }
 });
 
 for (const snapshot of [false, true]) {

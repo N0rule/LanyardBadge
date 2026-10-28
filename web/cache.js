@@ -109,7 +109,7 @@
       });
       if (!record) return undefined;
       try {
-        BadgeCodec.validateBMP(record.bytes);
+        BadgeCodec.validateArtwork(record.bytes);
         if (record.hash !== (await digest(record.bytes))) throw Error('Cached artwork is corrupt');
         if (epoch !== (this.epochs.get(scope.device) || 0)) return undefined;
         this.remember(record);
@@ -126,7 +126,7 @@
     async put(scope, id, bytes) {
       if (!scope || !/^[a-f0-9]{8}$/.test(id)) return;
       try {
-        BadgeCodec.validateBMP(bytes);
+        BadgeCodec.validateArtwork(bytes);
         const epoch = this.epochs.get(scope.device) || 0;
         const record = {
           key: scope.key + '/' + id,

@@ -70,6 +70,13 @@ class Ui {
     int uploadPercent_ = 0;
     uint32_t uploadChangedAt_ = 0;
     bool streaming_ = true, direct_ = false;
+    File animationFile_;
+    AnimationDecoder animationDecoder_;
+    uint32_t animationDue_ = 0, animationFrames_ = 0, animationMaxUs_ = 0;
+    uint16_t animationPlays_ = 0;
+    bool animationError_ = false;
+    bool animationFrame();
+    void animate();
     bool pairedOnce_ = false;
     uint32_t nativePasskey_ = UINT32_MAX;
     Page pairingReturn_ = Page::Badge;

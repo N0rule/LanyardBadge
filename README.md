@@ -10,8 +10,9 @@ XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 
 ## Use your badge
 
-1. New blank boards show a centered QR without requiring calibration. Scan it or
-   open the editor manually. The badge advertises its device-specific BLE service.
+1. New blank boards start with the geometric **First light** artwork. Hold BOOT
+   for two seconds to show the editor QR, then scan it or open the website manually.
+   Calibration is optional. Existing collections are never replaced by the default.
 2. Choose **Connect your badge** in a supported secure Web Bluetooth browser.
    On first connection, enter the fresh six-digit number displayed on the badge
    into the browser’s native Bluetooth prompt. Reconnect reuses the saved OS bond.
@@ -149,10 +150,12 @@ the badge preview, then upload. Rotation and precise crop controls appear after
 choosing artwork. Uploads use a dedicated progress screen in the badge's saved
 light or dark theme, and only report completion after the card is safely saved.
 
-GIF preparation is under development: real browser frame decoding, shared artwork
-transforms and changed-region export have automated coverage. GIF selection and
-badge playback remain unavailable until the device pipeline is validated. See
-[GIF development status](docs/GIF.md).
+Animated GIFs are supported with current firmware: choose the GIF, adjust it like
+still artwork, then upload. The browser previews every frame and the badge plays
+compressed frame updates without a framebuffer. Input limits are 30 MB, 300 frames,
+30 seconds and a prepared asset size of 1 MiB; available storage can limit this
+further. Older badges need a data-preserving USB firmware update. See
+[GIF support and limits](docs/GIF.md).
 
 The editor caches validated artwork in the browser, so refreshes and reconnects
 reuse unchanged cards. It still authenticates and reads current card metadata.

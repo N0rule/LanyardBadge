@@ -37,6 +37,39 @@
     toastTimer,
     frame = 0,
     drag = null;
+  let activePlayer = null,
+    animationEnabled = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function syncAnimation() {
+    const player = states.get(card().id)?.player;
+    if (activePlayer && activePlayer !== player) activePlayer.pause();
+    activePlayer = player;
+    $('animation-toggle').hidden = !player;
+    const controls = () => {
+      $('animation-toggle').textContent = player?.finished
+        ? 'Replay animation'
+        : animationEnabled
+          ? 'Pause animation'
+          : 'Play animation';
+      $('animation-toggle').setAttribute(
+        'aria-pressed',
+        String(animationEnabled && !player?.finished),
+      );
+    };
+    controls();
+    if (player) {
+      if (animationEnabled && connected && !busy && !document.hidden)
+        player.play(schedule, controls);
+      else player.pause();
+    }
+  }
+  $('animation-toggle').onclick = () => {
+    if (activePlayer?.finished) {
+      activePlayer.restart();
+      animationEnabled = true;
+    } else animationEnabled = !animationEnabled;
+    syncAnimation();
+  };
+  document.addEventListener('visibilitychange', syncAnimation);
   let cacheScope = null,
     activeBadgeId = null,
     wantedArtwork = '',
@@ -148,6 +181,7 @@
       $(id).disabled = value;
     $('device-open').disabled = value || !connected;
     actions();
+    syncAnimation();
   }
   function sync() {
     const s = states.get(card().id);
@@ -155,13 +189,18 @@
     $('crop-controls').hidden = !s;
     $('letterbox-control').hidden = !s || s.fit !== 'contain';
     $('artwork-action').textContent = s || card().image ? 'Replace artwork' : 'Choose artwork';
-    $('artwork-status').textContent = s ? 'Choose a different file' : 'PNG, JPEG, WebP or BMP';
+    $('artwork-status').textContent = s?.animationSource
+      ? `GIF animation · ${s.frames} frames`
+      : s
+        ? 'Choose a different file'
+        : 'PNG, JPEG, WebP, BMP or GIF';
     $('preview-help').textContent = s
       ? 'Drag artwork to position it.'
       : card().image
         ? 'Loading card preview…'
         : 'Choose artwork to begin.';
     canvas.classList.toggle('has-artwork', !!s);
+    syncAnimation();
     actions();
     if (!s) return;
     $('fit').value = s.fit;
@@ -244,6 +283,7 @@
       if (!bytes) {
         bytes = await transport.getArtwork(asset, {
           rangeBytes: Number(status.imageReadMax) || 0,
+          total: Number(status.artworkSizes?.[asset]) || 153666,
           signal,
           onProgress: (percent) => {
             if (!signal.aborted && c.id === card().id)
@@ -260,12 +300,30 @@
         states.has(c.id)
       )
         return;
-      const off = document.createElement('canvas');
-      off.width = 240;
-      off.height = 320;
-      off.getContext('2d').putImageData(new ImageData(BadgeCodec.decodeBMP(bytes), 240, 320), 0, 0);
+      let source;
+      if (new DataView(bytes).getUint32(0, false) === 0x4c424131)
+        source = await BadgeGIF.open(bytes);
+      else {
+        const image = document.createElement('canvas');
+        image.width = 240;
+        image.height = 320;
+        image
+          .getContext('2d')
+          .putImageData(new ImageData(BadgeCodec.decodeBMP(bytes), 240, 320), 0, 0);
+        source = { image };
+      }
+      if (
+        signal.aborted ||
+        !connected ||
+        cacheScope?.key !== scope.key ||
+        states.has(c.id) ||
+        !deck.cards.some((card) => card.id === c.id && card.image === asset)
+      ) {
+        source.image.close?.();
+        return;
+      }
       states.set(c.id, {
-        image: off,
+        ...source,
         assetId: asset,
         zoom: 1,
         x: 0,
@@ -301,6 +359,7 @@
   function useBadge(deviceId) {
     if (activeBadgeId === deviceId) return;
     stopArtwork();
+    activePlayer?.pause();
     if (activeBadgeId)
       workspaces.set(activeBadgeId, { deck, selected, states, changed, committed, conflict });
     const saved = workspaces.get(deviceId);
@@ -473,6 +532,7 @@
       $('disconnect-top').hidden = true;
       $('draft-kept').hidden = !changed;
       $('device-dialog').close();
+      syncAnimation();
     }
   });
   async function finishPair(password) {
@@ -651,18 +711,29 @@
     try {
       if (file.size > 30 * 1024 * 1024) throw Error('Choose artwork smaller than 30 MB.');
       const signature = new Uint8Array(await file.slice(0, 6).arrayBuffer());
-      if (file.type === 'image/gif' || /^GIF8[79]a$/.test(String.fromCharCode(...signature)))
+      const gif =
+        file.type === 'image/gif' || /^GIF8[79]a$/.test(String.fromCharCode(...signature));
+      if (gif && status.animationFormat !== 1)
         throw Error(
-          'Animated cards are not supported on the badge yet. Choose PNG, JPEG, WebP or BMP.',
+          'Update your badge firmware using USB to upload animated GIFs. Your current artwork is kept.',
         );
       // Decode once; every edit redraws from the original, with no cumulative resampling.
-      const image = await createImageBitmap(file);
+      const source = gif ? await BadgeGIF.open(file) : { image: await createImageBitmap(file) },
+        image = source.image;
       if (image.width * image.height > 50_000_000) {
         image.close();
         throw Error('Choose artwork below 50 megapixels.');
       }
       states.get(card().id)?.image?.close?.();
-      states.set(card().id, { image, zoom: 1, x: 0, y: 0, rotation: 0, fit: 'cover', dirty: true });
+      states.set(card().id, {
+        ...source,
+        zoom: 1,
+        x: 0,
+        y: 0,
+        rotation: 0,
+        fit: 'cover',
+        dirty: true,
+      });
       card().mode = 'artwork';
       card().texts = [];
       card().shapes = [];
@@ -876,15 +947,34 @@
       if (s && (s.dirty || !imageId)) {
         if (s.uploadedId) imageId = s.uploadedId;
         else {
-          const output = document.createElement('canvas');
-          output.width = 240;
-          output.height = 320;
-          const out = output.getContext('2d');
-          BadgeArtwork.draw(out, s.image, s, hex(c.background));
-          const bytes = BadgeCodec.encodeBMP(out.getImageData(0, 0, 240, 320).data);
+          let bytes;
+          if (s.animationSource) {
+            if (status.animationFormat !== 1)
+              throw Error('Update your badge firmware using USB to upload animated GIFs.');
+            progress('Preparing animation…', 0);
+            bytes = await BadgeGIF.encode(s.animationSource, {
+              transform: { ...s },
+              background: hex(c.background),
+              signal: transport.sessionAbort.signal,
+              onProgress: (p) => progress(`Preparing animation… ${p}%`, p),
+            });
+            if (bytes.byteLength > (status.maxAnimationBytes || BadgeGIF.maxBytes))
+              throw Error(
+                'This animation is too large for the badge. Choose a shorter or simpler GIF.',
+              );
+          } else {
+            const output = document.createElement('canvas');
+            output.width = 240;
+            output.height = 320;
+            const out = output.getContext('2d');
+            BadgeArtwork.draw(out, s.image, s, hex(c.background));
+            bytes = BadgeCodec.encodeBMP(out.getImageData(0, 0, 240, 320).data);
+          }
           progress('Uploading card…', 0);
-          const result = await transport.uploadCard(bytes, (p) =>
-            progress(`Uploading card… ${p}%`, p),
+          const result = await transport.uploadCard(
+            bytes,
+            (p) => progress(`Uploading card… ${p}%`, p),
+            !!s.animationSource,
           );
           imageId = result.id;
           s.uploadedId = imageId;
