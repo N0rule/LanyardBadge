@@ -21,7 +21,8 @@ XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
    The editor appears after authentication; empty cards start with a neutral gray preview.
 3. Choose artwork, rotate, fit/crop, zoom and drag it into position. The preview
    and final upload share the same transformation. Upload the card, then wear it.
-4. Swipe the physical artwork screen to change cards; hold it to open the menu.
+4. Swipe the physical artwork screen to change cards; hold it for about half a
+   second to open the menu. A hold can continue directly after waking the screen.
    Settings include brightness, slideshow and display timeout. Touch wakes a dark
    screen, consuming the first press. Default timeout is two minutes; Never is
    available.

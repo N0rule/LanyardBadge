@@ -270,3 +270,16 @@ streams decoded stripes through the existing display buffer. Menu/upload/pairing
 views and sleeping pause display ownership; returning to a card begins with its
 full first frame. Source GIFs and cached committed animations follow the existing
 per-device draft and credential-cache lifecycles. See [GIF support](GIF.md).
+
+
+## Physical menu gesture
+
+A stationary 450 ms screen hold opens the menu, with 22 px movement tolerance.
+Movement beyond that threshold cancels a hold even if the finger returns. Horizontal
+swipes keep their existing distance/direction checks. Resistive touch still needs
+two valid samples to begin, and now tolerates a pressure dropout shorter than 32 ms
+before releasing contact. This prevents a noisy sample from repeatedly restarting
+a deliberate hold. Waking consumes ordinary taps, while a continued deliberate hold
+may enter the menu. Releasing a consumed wake gesture resets recognition so it
+cannot become an unintended card-switch tap. The held pointer remains ignored by
+LVGL until released, preventing it from activating the newly opened menu.

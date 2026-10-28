@@ -176,15 +176,36 @@ class ScreenActivity {
     }
 };
 enum class Gesture { None, Tap, Left, Right, Hold };
+class TouchContact {
+    uint32_t lastValid_ = 0;
+    uint8_t stable_ = 0;
+    bool down_ = false;
+
+  public:
+    bool update(bool valid, uint32_t now) {
+        if (valid) {
+            lastValid_ = now;
+            if (stable_ < 2)
+                ++stable_;
+            down_ = down_ || stable_ >= 2;
+        } else if (!down_ || uint32_t(now - lastValid_) >= 32) {
+            stable_ = 0;
+            down_ = false;
+        }
+        return down_;
+    }
+};
 class Gestures {
-    bool active_ = false, held_ = false;
+    bool active_ = false, held_ = false, moved_ = false;
     Point start_{};
     uint32_t began_ = 0;
 
   public:
+    static constexpr uint32_t holdMs = 450;
     void reset() {
         active_ = false;
         held_ = false;
+        moved_ = false;
     }
     Gesture update(bool down, Point p, uint32_t now) {
         if (down && !active_) {
@@ -192,10 +213,13 @@ class Gestures {
             began_ = now;
             active_ = true;
             held_ = false;
+            moved_ = false;
             return Gesture::None;
         }
         int dx = p.x - start_.x, dy = p.y - start_.y;
-        if (down && !held_ && now - began_ >= 750 && abs(dx) < 14 && abs(dy) < 14) {
+        if (active_ && (abs(dx) > 22 || abs(dy) > 22))
+            moved_ = true;
+        if (down && !held_ && !moved_ && now - began_ >= holdMs) {
             held_ = true;
             return Gesture::Hold;
         }
@@ -205,7 +229,7 @@ class Gestures {
                 return Gesture::None;
             if (abs(dx) >= 45 && abs(dx) > abs(dy) * 2 && now - began_ < 1200)
                 return dx < 0 ? Gesture::Left : Gesture::Right;
-            if (abs(dx) < 14 && abs(dy) < 14 && now - began_ < 750)
+            if (!moved_ && abs(dx) < 14 && abs(dy) < 14 && now - began_ < holdMs)
                 return Gesture::Tap;
         }
         return Gesture::None;

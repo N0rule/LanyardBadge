@@ -11,7 +11,7 @@ class Touch {
     XPT2046_Touchscreen touch_{board::touchCs};
     Point raw_{}, mapped_{};
     bool down_ = false;
-    uint8_t stable_ = 0;
+    TouchContact contact_;
     uint32_t last_ = 0;
     uint32_t presses_ = 0;
     int16_t pressure_ = 0;

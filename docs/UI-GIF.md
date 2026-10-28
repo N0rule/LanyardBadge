@@ -134,3 +134,29 @@ release `4002d491f59d3ced5066fa12a9ce18d3ad16a066` passed
 Its bare public index and manifest served `2.3.4-4002d491f59d`; app.js, transport.js,
 cache.js, gif.js and style.css matched the source byte for byte, and firmware
 release hashes verified. The optimized follow-up's publication is recorded below.
+
+
+The tester then inspected the optimized animation on the physical Badge-287E and
+confirmed **“Looks good now”** when asked whether the top-to-bottom wipe remained
+distracting. The same GIF had played over 1,800 frames without a decoder error;
+worst frame time remained 65,030 us, free heap 96,684 bytes, minimum heap 95,396,
+and loop-stack margin 5,384 bytes. The user's one card/revision 8 and bond were
+retained. No further firmware change or flash follows this visual acceptance.
+
+
+## Menu access follow-up
+
+After accepting animation playback, the user reported that opening the menu needed
+a very long press and confirmed they wanted it sooner. The previous gesture
+required 750 ms, lost contact immediately on a pressure dropout, and consumed a
+hold begun during wake. The new hold is 450 ms with 22 px stationary tolerance;
+actual swipe movement latches hold cancellation. Touch release has a 32 ms dropout
+grace after the existing two-sample contact validation. A deliberate wake-and-hold
+can open the menu directly; ordinary wake taps remain consumed and never switch
+cards on release. The held pointer cannot click a menu item before release.
+
+Host sanitizer tests cover the exact 450 ms threshold, one-shot hold, contact
+bounce/real release, return-after-swipe cancellation, existing taps/swipes and wake
+consumption. CYD2USB compilation and flash bounds passed. Final menu firmware:
+1,171,904 / 2,097,152 bytes; static RAM 82,280 / 327,680; ELF sections 1,155,143.
+The user chose the faster behavior before it was installed.

@@ -140,6 +140,46 @@ int main() {
         assert(!validBitmap(invalid.data(), invalid.size(), bitmapBytes));
     }
     Gestures g;
+    TouchContact contact;
+    assert(!contact.update(true, 0));
+    assert(contact.update(true, 8));
+    assert(contact.update(false, 16)); // a pressure dropout must not end a hold
+    assert(contact.update(true, 24));
+    assert(contact.update(false, 40));
+    assert(!contact.update(false, 56)); // a real release still arrives promptly
+    assert(!contact.update(true, 64));
+    assert(!contact.update(false, 72));
+    assert(!contact.update(true, 80));
+    assert(contact.update(true, 88));
+    Gestures quick;
+    assert(quick.update(true, {100, 100}, 1000) == Gesture::None);
+    assert(quick.update(true, {119, 114}, 1449) == Gesture::None);
+    assert(quick.update(true, {119, 114}, 1450) == Gesture::Hold);
+    assert(quick.update(true, {119, 114}, 1451) == Gesture::None);
+    assert(quick.update(false, {119, 114}, 1500) == Gesture::None);
+    quick.update(true, {100, 100}, 2000);
+    quick.update(true, {160, 100}, 2100);
+    assert(quick.update(true, {100, 100}, 2500) == Gesture::None); // a returned swipe is not a hold
+    assert(quick.update(false, {100, 100}, 2510) == Gesture::None);
+    ScreenActivity wakeHold;
+    wakeHold.sleep();
+    wakeHold.update(3000, 120, true, false);
+    assert(!wakeHold.asleep() && wakeHold.consumed());
+    quick.reset();
+    quick.update(true, {100, 100}, 3000);
+    assert(quick.update(true, {100, 100}, 3450) == Gesture::Hold);
+    assert(wakeHold.consumed()); // LVGL still ignores the held pointer until release
+    wakeHold.update(3500, 120, false, false);
+    assert(!wakeHold.consumed());
+    quick.reset(); // consumed -> released discards the wake gesture
+    assert(quick.update(false, {100, 100}, 3500) == Gesture::None);
+    wakeHold.sleep();
+    wakeHold.update(4000, 120, true, false);
+    quick.update(true, {100, 100}, 4000);
+    wakeHold.update(4100, 120, false, false);
+    assert(!wakeHold.consumed());
+    quick.reset();
+    assert(quick.update(false, {100, 100}, 4100) == Gesture::None);
     assert(g.update(true, {100, 100}, 0) == Gesture::None);
     assert(g.update(false, {101, 101}, 90) == Gesture::Tap);
     assert(g.update(true, {180, 100}, 200) == Gesture::None);

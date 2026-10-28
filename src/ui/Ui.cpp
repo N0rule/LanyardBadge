@@ -814,14 +814,30 @@ void Ui::tick() {
         ignore_ = false;
     if (page_ == Page::Calibration)
         calibrationTick();
-    bool wasAsleep = activity_.asleep();
+    bool wasAsleep = activity_.asleep(), wasConsumed = activity_.consumed();
     activity_.update(millis(), settings_.value.screenTimeout, touch_.down(),
                      busy_ || page_ == Page::Calibration || page_ == Page::BluetoothPairing);
     if (wasAsleep != activity_.asleep())
         display_.brightness(activity_.asleep() ? 0 : settings_.value.brightness);
-    if (activity_.asleep() || activity_.consumed()) {
+    if (wasConsumed && !activity_.consumed()) {
+        // Releasing the wake touch must never become a card-switch tap.
         gestures_.reset();
         ignore_ = true;
+    }
+    if (activity_.asleep()) {
+        gestures_.reset();
+        ignore_ = true;
+        return;
+    }
+    if (activity_.consumed()) {
+        // A wake tap cannot switch cards. A deliberate hold may still open the
+        // menu without requiring the user to lift and press a second time.
+        ignore_ = true;
+        if (page_ == Page::Badge && !busy_ &&
+            gestures_.update(touch_.down(), touch_.point(), millis()) == Gesture::Hold) {
+            page(Page::Menu);
+            render();
+        }
         return;
     }
     if (page_ == Page::Badge && !ignore_ && !busy_) {
