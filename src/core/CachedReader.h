@@ -9,10 +9,18 @@ template <size_t BlockSize> class CachedReader {
     static_assert(BlockSize && !(BlockSize & (BlockSize - 1)), "Block size must be a power of two");
     uint8_t bytes_[BlockSize];
     uint32_t position_ = 0, base_ = 0;
+    uint32_t sourceEnd_ = 0;
     size_t valid_ = 0;
     bool loaded_ = false;
+    bool sourcePositionKnown_ = false;
 
   public:
+    void reset() {
+        position_ = base_ = 0;
+        valid_ = 0;
+        loaded_ = false;
+        sourcePositionKnown_ = false;
+    }
     uint32_t position() const { return position_; }
     bool seek(uint32_t position, uint32_t size) {
         if (position > size)
@@ -26,9 +34,13 @@ template <size_t BlockSize> class CachedReader {
         while (copied < length && position_ < source.size()) {
             uint32_t block = position_ & ~uint32_t(BlockSize - 1);
             if (!loaded_ || base_ != block) {
-                if (!source.seek(block))
+                // Sequential animation reads already leave the file at this block.
+                // Re-seeking on every cache fill makes LittleFS walk its file index again.
+                if ((!sourcePositionKnown_ || sourceEnd_ != block) && !source.seek(block))
                     break;
                 valid_ = source.read(bytes_, BlockSize);
+                sourceEnd_ = block + valid_;
+                sourcePositionKnown_ = true;
                 base_ = block;
                 loaded_ = true;
             }

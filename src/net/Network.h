@@ -32,6 +32,12 @@ class Network {
     std::function<bool()> pairingCodeAllowed;
     Network(SettingsStore &s, Assets &a) : settings_(s), assets_(a) {}
     bool validToken(const String &) const;
+    bool touchSession(const String &token) {
+        if (!validToken(token))
+            return false;
+        tokenUsed_ = millis();
+        return true;
+    }
     void revokeSession();
     bool pendingCardUpload() const {
         return pendingCardUpload_ && millis() - cardUploadAt_ < 45000;

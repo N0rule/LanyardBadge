@@ -1,9 +1,21 @@
 #pragma once
 #include "CachedReader.h"
 #include "Core.h"
+#include <algorithm>
+#include <array>
 namespace badge {
 // LBA1 is a display-ready asset, not a GIF decoder. No full framebuffer is needed.
 constexpr uint32_t maxAnimationBytes = 1024 * 1024;
+inline constexpr auto animationCrcTable = [] {
+    std::array<uint32_t, 256> table{};
+    for (unsigned i = 0; i < table.size(); ++i) {
+        uint32_t value = i;
+        for (unsigned bit = 0; bit < 8; ++bit)
+            value = (value >> 1) ^ (0xedb88320U & (0U - (value & 1U)));
+        table[i] = value;
+    }
+    return table;
+}();
 inline uint16_t read16(const uint8_t *p) {
     return uint16_t(p[0]) | uint16_t(p[1]) << 8;
 }
@@ -24,18 +36,16 @@ struct AnimationFrame {
     uint16_t x = 0, y = 0, width = 0, height = 0, delay = 0;
 };
 class AnimationDecoder {
-    CachedReader<512> reader_;
+    CachedReader<8192> reader_;
+    uint8_t runs_[1024];
     AnimationHeader header_;
     uint16_t frame_ = 0;
     uint32_t crc_ = 0xffffffff, duration_ = 0;
     template <class Source> bool read(Source &source, uint8_t *out, size_t n) {
         if (reader_.read(source, out, n) != n)
             return false;
-        for (size_t i = 0; i < n; ++i) {
-            crc_ ^= out[i];
-            for (unsigned b = 0; b < 8; ++b)
-                crc_ = (crc_ >> 1) ^ (0xedb88320U & (0U - (crc_ & 1U)));
-        }
+        for (size_t i = 0; i < n; ++i)
+            crc_ = (crc_ >> 8) ^ animationCrcTable[(crc_ ^ out[i]) & 255];
         return true;
     }
 
@@ -43,7 +53,8 @@ class AnimationDecoder {
     const AnimationHeader &header() const { return header_; }
     bool finished() const { return frame_ == header_.frames; }
     template <class Source> bool begin(Source &source) {
-        reader_ = CachedReader<512>{};
+        // Reset indices, without constructing a large temporary on the loop stack.
+        reader_.reset();
         frame_ = 0;
         duration_ = 0;
         crc_ = 0xffffffff;
@@ -53,7 +64,8 @@ class AnimationDecoder {
     }
     // The sink gets top-down rows in host-endian RGB565, with bounded scratch space.
     template <class Source, class Sink>
-    bool next(Source &source, uint16_t *scratch, size_t words, AnimationFrame &f, Sink sink) {
+    bool next(Source &source, uint16_t *scratch, size_t words, AnimationFrame &f, Sink sink,
+              uint16_t *alternate = nullptr) {
         if (finished())
             return false;
         uint8_t h[16];
@@ -70,35 +82,48 @@ class AnimationDecoder {
             (pixels && words < f.width))
             return false;
         uint32_t end = reader_.position() + bytes, remaining = 0;
+        size_t runAt = 0, runValid = 0;
         uint16_t color = 0;
         unsigned rows = f.width ? unsigned(words / f.width) : 1;
         for (unsigned y = 0; y < f.height; y += rows) {
             unsigned countRows = f.height - y < rows ? f.height - y : rows;
             size_t count = size_t(countRows) * f.width;
-            for (size_t i = 0; i < count; ++i) {
-                if (!encoding) {
-                    uint8_t p[2];
-                    if (reader_.position() + 2 > end || !read(source, p, 2))
-                        return false;
-                    scratch[i] = read16(p);
-                } else {
+            if (!encoding) {
+                auto *bytes = reinterpret_cast<uint8_t *>(scratch);
+                if (reader_.position() + count * 2 > end || !read(source, bytes, count * 2))
+                    return false;
+                for (size_t i = 0; i < count; ++i)
+                    scratch[i] = read16(bytes + i * 2);
+            } else {
+                size_t i = 0;
+                while (i < count) {
                     if (!remaining) {
-                        uint8_t run[4];
-                        if (reader_.position() + 4 > end || !read(source, run, 4))
-                            return false;
-                        remaining = read16(run);
-                        color = read16(run + 2);
+                        // Read many runs at once. A per-run cached read/CRC call costs
+                        // far more than filling a typical short color run on ESP32.
+                        if (runAt == runValid) {
+                            runValid = std::min<size_t>(sizeof(runs_), end - reader_.position());
+                            runAt = 0;
+                            if (!runValid || !read(source, runs_, runValid))
+                                return false;
+                        }
+                        remaining = read16(runs_ + runAt);
+                        color = read16(runs_ + runAt + 2);
+                        runAt += 4;
                         if (!remaining)
                             return false;
                     }
-                    scratch[i] = color;
-                    --remaining;
+                    size_t run = std::min<size_t>(remaining, count - i);
+                    std::fill_n(scratch + i, run, color);
+                    i += run;
+                    remaining -= run;
                 }
             }
             if (!sink(f.x, f.y + y, f.width, countRows, scratch))
                 return false;
+            if (alternate)
+                std::swap(scratch, alternate);
         }
-        if (remaining || reader_.position() != end)
+        if (remaining || reader_.position() != end || runAt != runValid)
             return false;
         duration_ += f.delay;
         ++frame_;

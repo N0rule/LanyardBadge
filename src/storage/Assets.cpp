@@ -6,6 +6,10 @@
 #include <new>
 namespace badge {
 namespace {
+struct AnimationValidation {
+    AnimationDecoder decoder;
+    uint16_t row[240];
+};
 uint32_t manifestCrc(JsonDocument &doc) {
     String canonical;
     serializeJson(doc, canonical);
@@ -241,16 +245,18 @@ bool Assets::finishUpload(String &id, String &error) {
     }
     auto f = LittleFS.open("/upload.tmp", "r");
     if (complete && f && animationUpload_) {
-        AnimationDecoder decoder;
+        // BLE parsing and progress rendering share the small Arduino loop stack.
+        // A checked, bounded allocation leaves stack headroom and preserves failure safety.
+        std::unique_ptr<AnimationValidation> validation(new (std::nothrow) AnimationValidation);
         AnimationFrame frame;
-        uint16_t row[240];
-        complete = decoder.begin(f);
-        while (complete && !decoder.finished())
-            complete = decoder.next(f, row, 240, frame,
-                                    [](unsigned, unsigned, unsigned, unsigned, uint16_t *) {
-                                        yield();
-                                        return true;
-                                    });
+        complete = validation && validation->decoder.begin(f);
+        while (complete && !validation->decoder.finished())
+            complete =
+                validation->decoder.next(f, validation->row, 240, frame,
+                                         [](unsigned, unsigned, unsigned, unsigned, uint16_t *) {
+                                             yield();
+                                             return true;
+                                         });
     } else {
         uint8_t header[66];
         size_t n = f ? f.read(header, 66) : 0;

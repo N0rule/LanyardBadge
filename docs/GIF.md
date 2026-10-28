@@ -34,8 +34,10 @@ it does not replace it with its first frame or close it during re-pairing.
 Committed artwork may be reopened from a validated, credential-scoped cache as
 an editable animation, with further adjustments applied to every frame.
 
-The ESP32 uses the existing 15,360-byte display stripe buffer plus a 512-byte
-reader cache. It never allocates a 153,600-byte framebuffer or keeps all frames
+The ESP32 uses the existing 15,360-byte display stripe buffer plus an 8 KiB
+reader cache and a 1 KiB batch of RLE records. The stripe buffer is split into
+two halves during animation so decoding overlaps DMA. A checked temporary heap
+workspace is used for upload validation, keeping it off the small loop stack. It never allocates a 153,600-byte framebuffer or keeps all frames
 in RAM. Playback schedules from the start of each frame, does not skip dependent
 delta frames, and slows when decoding/SPI work exceeds the source delay. Actual
 frame time is available as `animationMaxFrameUs`; source timing is not a guarantee
@@ -92,3 +94,9 @@ recorded in [the UI/GIF release record](UI-GIF.md).
 
 Sources: [WebCodecs image decoding](https://www.w3.org/TR/webcodecs/#image-decoding)
 and [GIF89a](https://giflib.sourceforge.net/gifstandard/GIF89a.html).
+
+
+Active authenticated request bodies and acknowledged response chunks refresh the
+API session lease. Long transfers therefore count as activity; they do not consume
+a fixed 20-minute lease from initial pairing. Idle expiry and revocation remain
+in force. Decoder bounds and CRC checks remain enabled in the faster draw path.

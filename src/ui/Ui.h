@@ -73,6 +73,7 @@ class Ui {
     File animationFile_;
     AnimationDecoder animationDecoder_;
     uint32_t animationDue_ = 0, animationFrames_ = 0, animationMaxUs_ = 0;
+    uint32_t animationLastUs_ = 0, animationIoUs_ = 0, animationSpiUs_ = 0;
     uint16_t animationPlays_ = 0;
     bool animationError_ = false;
     bool animationFrame();

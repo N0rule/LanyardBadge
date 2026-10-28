@@ -17,5 +17,8 @@ class Display : public lgfx::LGFX_Device {
     void brightness(uint8_t percent);
     void orientation(uint8_t rotation);
     void flushArea(const lv_area_t *area, uint8_t *pixels);
+    void beginArea(int x, int y, int width, int height);
+    void writeAreaPixels(uint16_t *pixels, size_t count, bool wait = true);
+    void endArea();
 };
 } // namespace badge

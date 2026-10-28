@@ -215,8 +215,11 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
         return;
     }
     if (op == 5) {
-        if (responding_ && seq == sequence_ && offset == sent_)
+        if (responding_ && seq == sequence_ && offset == sent_) {
             waitingAck_ = false;
+            if (authenticated_)
+                api_.touchSession(token_);
+        }
         // Late acknowledgements from an abandoned page are harmless.
         return;
     }
@@ -259,7 +262,7 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
         token_ = d["token"] | "";
         length_ = d["length"];
         bool pairing = path_ == "/api/pair" && method_ == "POST";
-        if (!pairing && (!authenticated_ || !api_.validToken(token_))) {
+        if (!pairing && (!authenticated_ || !api_.touchSession(token_))) {
             fail(401, "Scan your badge QR to pair again");
             return;
         }
@@ -308,6 +311,8 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
             return;
         }
         received_ += n - 7;
+        if (authenticated_)
+            api_.touchSession(token_);
         if (uploading_ && api_.progress)
             api_.progress(UploadPhase::Receiving, received_ * 100U / length_);
         if (!notify(0, received_))

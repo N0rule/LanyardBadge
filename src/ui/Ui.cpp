@@ -4,6 +4,9 @@
 #include <algorithm>
 #include <esp_heap_caps.h>
 #include <new>
+#ifndef __OPTIMIZE__
+#error "Badge display firmware requires compiler optimization (see platformio.ini)"
+#endif
 static void *graphicsPool = nullptr;
 extern "C" void *badge_lv_pool(size_t) {
     return graphicsPool;
@@ -14,6 +17,24 @@ alignas(4) uint8_t buffer[board::width * 32 * 2];
 struct ImageFile {
     File source;
     CachedReader<4096> reader;
+};
+struct TimedArtworkSource {
+    File &file;
+    uint32_t length, ioUs = 0;
+    explicit TimedArtworkSource(File &f) : file(f), length(f.size()) {}
+    uint32_t size() const { return length; }
+    bool seek(uint32_t offset) {
+        uint32_t start = micros();
+        bool ok = file.seek(offset);
+        ioUs += micros() - start;
+        return ok;
+    }
+    size_t read(uint8_t *out, size_t bytes) {
+        uint32_t start = micros();
+        size_t count = file.read(out, bytes);
+        ioUs += micros() - start;
+        return count;
+    }
 };
 constexpr uint32_t blue = 0x3659d9;
 constexpr Point targets[] = {{24, 24}, {215, 24}, {24, 295}, {215, 295}};
@@ -329,41 +350,62 @@ bool Ui::streamArtwork() {
     if (!file || file.read(header, 66) != 66 || !validBitmap(header, 66, file.size()))
         return false;
     uint32_t started = micros();
+    display_.beginArea(0, 0, 240, 320);
+    bool complete = true;
     for (int y = 0; y < 320; y += 32) {
         if (!file.seek(66 + (320 - y - 32) * 480) ||
-            file.read(buffer, sizeof(buffer)) != sizeof(buffer))
-            return false;
+            file.read(buffer, sizeof(buffer)) != sizeof(buffer)) {
+            complete = false;
+            break;
+        }
         // BMP rows are bottom-up. Reverse in place, retaining native RGB565 bytes.
         for (int row = 0; row < 16; ++row)
             for (int x = 0; x < 480; ++x)
                 std::swap(buffer[row * 480 + x], buffer[(31 - row) * 480 + x]);
-        lv_area_t area{0, y, 239, y + 31};
-        display_.flushArea(&area, buffer);
-        touch_.poll();
-        yield();
+        display_.writeAreaPixels(reinterpret_cast<uint16_t *>(buffer), sizeof(buffer) / 2);
     }
+    display_.endArea();
+    touch_.poll();
     artworkUs_ = micros() - started;
-    return true;
+    return complete;
 }
 bool Ui::animationFrame() {
     uint32_t started = micros(), now = millis();
     AnimationFrame frame;
+    TimedArtworkSource source(animationFile_);
+    uint32_t spiUs = 0;
+    bool writing = false;
+    auto *first = reinterpret_cast<uint16_t *>(buffer);
+    constexpr size_t halfWords = sizeof(buffer) / 4;
     bool ok = animationDecoder_.next(
-        animationFile_, reinterpret_cast<uint16_t *>(buffer), sizeof(buffer) / 2, frame,
-        [&](unsigned x, unsigned y, unsigned w, unsigned h, uint16_t *pixels) {
-            lv_area_t area{int32_t(x), int32_t(y), int32_t(x + w - 1), int32_t(y + h - 1)};
-            display_.flushArea(&area, reinterpret_cast<uint8_t *>(pixels));
-            touch_.poll();
-            yield();
+        source, first, halfWords, frame,
+        [&](unsigned, unsigned, unsigned w, unsigned h, uint16_t *pixels) {
+            uint32_t spiStart = micros();
+            if (!writing) {
+                display_.beginArea(frame.x, frame.y, frame.width, frame.height);
+                writing = true;
+            }
+            display_.writeAreaPixels(pixels, w * h, false);
+            spiUs += micros() - spiStart;
             return true;
-        });
+        },
+        first + halfWords);
+    if (writing) {
+        uint32_t spiStart = micros();
+        display_.endArea();
+        spiUs += micros() - spiStart;
+    }
+    touch_.poll();
     if (!ok) {
         animationError_ = true;
         animationFile_.close();
         return false;
     }
     ++animationFrames_;
-    animationMaxUs_ = std::max(animationMaxUs_, uint32_t(micros() - started));
+    animationLastUs_ = micros() - started;
+    animationIoUs_ = source.ioUs;
+    animationSpiUs_ = spiUs;
+    animationMaxUs_ = std::max(animationMaxUs_, animationLastUs_);
     animationDue_ = now + frame.delay;
     return true;
 }
@@ -443,6 +485,9 @@ void Ui::diagnostics(JsonDocument &d) const {
     d["animationPlaying"] = bool(animationFile_);
     d["animationFrames"] = animationFrames_;
     d["animationMaxFrameUs"] = animationMaxUs_;
+    d["animationLastFrameUs"] = animationLastUs_;
+    d["animationIoUs"] = animationIoUs_;
+    d["animationSpiUs"] = animationSpiUs_;
     d["animationError"] = animationError_;
     d["uploadStage"] = uploadPhaseName(uploadPhase_);
     d["uploadPercent"] = uploadPercent_;

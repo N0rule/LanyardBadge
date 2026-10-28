@@ -55,10 +55,26 @@ void Display::orientation(uint8_t rotation) {
     setRotation(rotation == 2 ? 2 : 0);
 }
 void Display::flushArea(const lv_area_t *a, uint8_t *pixels) {
+    beginArea(a->x1, a->y1, lv_area_get_width(a), lv_area_get_height(a));
+    writeAreaPixels(reinterpret_cast<uint16_t *>(pixels), lv_area_get_size(a));
+    endArea();
+}
+void Display::beginArea(int x, int y, int width, int height) {
     startWrite();
-    setAddrWindow(a->x1, a->y1, lv_area_get_width(a), lv_area_get_height(a));
-    // LVGL RGB565 is host endian; LovyanGFX swaps for the SPI wire.
-    writePixels(reinterpret_cast<uint16_t *>(pixels), lv_area_get_size(a), true);
+    setAddrWindow(x, y, width, height);
+}
+void Display::writeAreaPixels(uint16_t *pixels, size_t count, bool wait) {
+    // Convert once in the owned draw buffer, then send one direct DMA stripe.
+    // LovyanGFX's conversion path otherwise issues many small copy/transmit jobs.
+    for (size_t i = 0; i < count; ++i)
+        pixels[i] = uint16_t(pixels[i] << 8 | pixels[i] >> 8);
+    waitDMA(); // Finish the preceding stripe before reusing DMA descriptors.
+    writePixelsDMA(pixels, count, false);
+    if (wait)
+        waitDMA(); // LVGL may reuse its buffer immediately after this function returns.
+}
+void Display::endArea() {
+    waitDMA();
     endWrite();
 }
 } // namespace badge

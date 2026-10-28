@@ -71,6 +71,23 @@ int main() {
     assert(decoder.next(source, scratch, 240 * 3, frame, paint) && frame.delay == 160 &&
            screen == previous);
     assert(decoder.finished());
+    // Model DMA ownership: decoding the next stripe must leave the pending
+    // stripe untouched until the sink completes it and queues the alternate.
+    assert(decoder.begin(source));
+    uint16_t other[240 * 3];
+    uint16_t *pending = nullptr;
+    std::vector<uint16_t> queued;
+    auto dma = [&](unsigned, unsigned, unsigned w, unsigned h, uint16_t *pixels) {
+        if (pending) {
+            assert(pixels != pending);
+            assert(!memcmp(pending, queued.data(), queued.size() * sizeof(uint16_t)));
+        }
+        pending = pixels;
+        queued.assign(pixels, pixels + w * h);
+        return true;
+    };
+    assert(decoder.next(source, scratch, 240 * 3, frame, dma, other));
+    assert(pending && !memcmp(pending, queued.data(), queued.size() * sizeof(uint16_t)));
     assert(decoder.begin(source)); // loop/reset must restore a complete first frame
     assert(decoder.next(source, scratch, 240 * 3, frame, paint));
     for (auto pixel : screen)

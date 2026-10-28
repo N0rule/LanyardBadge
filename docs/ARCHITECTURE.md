@@ -14,7 +14,7 @@ One aligned 15,360-byte stripe buffer serves both rendering paths. Full-screen
 artwork streams ten 32-row stripes from validated RGB565 BMPs, reversing each
 bottom-up stripe in place. It avoids LVGL's repeated per-row decoder work and
 filesystem allocations. No full-screen framebuffer or extra sprite is allocated.
-The loop polls touch between stripes. A whole artwork transition remains a
+The loop polls touch after each completed artwork frame. A whole artwork transition remains a
 bounded synchronous operation; BLE acknowledgements and menu input wait until
 that transition finishes. Full-screen transitions therefore still have a visible
 scanout possibility, documented rather than described as tear-free.
@@ -25,8 +25,11 @@ its handler until ownership returns to LVGL. Menu entry rebuilds once, invalidat
 the screen, and resumes LVGL. Display/slideshow settings update existing button
 labels in place, retaining scroll position and reducing partial redraws. Upload
 percentages update only when their integer value changes. Static artwork has no
-continuous redraw or animation. SPI transfers remain synchronous: measurements
-support removing decoder overhead before adding DMA buffer ownership complexity.
+continuous redraw or animation. LVGL flushes wait for DMA before releasing their buffer. Animation uses two halves
+of the same stripe buffer: it decodes the next half while DMA transmits the previous
+one, and waits before reusing a half or releasing display ownership. A frame uses
+one address window/transaction, retaining the proven 40 MHz SPI clock. Batched
+RLE records, table CRC and sequential cached reads reduce decoder/filesystem overhead.
 
 ## Inactivity and touch
 

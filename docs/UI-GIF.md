@@ -65,3 +65,72 @@ There is no PSRAM. A bounded serial observer collects only whitelisted diagnosti
 never PINs or credentials. The board has not been erased to test first-install
 seeding; its existing artwork is preserved. Actual animated playback timing and
 final deployment checks are recorded below when available.
+
+
+Independent interoperability check: Chromium's real ImageDecoder prepared the
+four-frame disposal GIF using fit/zoom/translation/rotation. The resulting 67,120-byte
+LBA1 file was then decoded by the firmware's C++ AnimationDecoder under ASan/UBSan
+with a 720-pixel scratch buffer. All four complete composited frame CRCs matched
+the browser's output exactly (80/120/160/200 ms, three total plays). This is a
+cross-language serialization check, separately from ESP32 radio/SPI timing.
+
+
+## Device refresh follow-up
+
+The user confirmed both old-card deletions were intentional. They then uploaded
+one GIF successfully (one card, revision 8) and reported correct browser animation,
+but a visible top-to-bottom device refresh. Actual badge captures measured a
+426,455 us worst frame, which is a visible progressive draw, not merely a theoretical
+tearing risk. A fresh private 4 MB backup preserves this new GIF and current settings.
+
+The first decoder/cache/DMA change measured 295,125 us worst and was insufficient.
+Additional instrumentation separated first-frame file I/O (34,818 us), display calls
+(53,429 us) and substantial per-run CPU overhead. Cached file length reduced the
+instrumented worst to 246,271 us; individual short run reads still dominated.
+The follow-up batches runs, uses table CRC and sequential read-ahead, and pipelines
+two half-stripes through one display transaction. No SPI overclock, backlight blanking,
+quality reduction, full framebuffer or unverified TE GPIO is used. A host test models
+pending DMA ownership and verifies it is not overwritten by the next decode.
+
+The upload validator's bounded workspace moved to checked heap allocation after
+live transfer diagnostics reached only 1,276 bytes loop-stack low-water margin.
+Larger decoder caches are reset by indices, avoiding a large temporary on the loop
+stack. Active valid upload bytes and matching response ACKs refresh the existing API
+idle lease; idle expiry and revocation still apply. This supports larger GIF transfers
+without expiring a session that is actively transferring data.
+
+
+### Confirmed build defect and final hardware result
+
+The actual PlatformIO compile database showed **no `-O` switch** for Ui.cpp, despite
+`BUILD_TYPE=release`. Thus project/library sources were compiling at GCC's default
+unoptimized level. `platformio.ini` now sets `-O2` explicitly, and Ui.cpp fails the
+build if `__OPTIMIZE__` is absent. A regenerated compile database verified `['-O2']`.
+Host sanitizer checks now also use `-O2`. This explains expensive ordinary screen
+updates as well as the animation decoder's unexpectedly high CPU cost.
+
+On the same saved 834,980-byte, nine-frame GIF, measured worst frame progression was
+426,455 us originally; 295,125 us after the first batching/cache change; 246,271 us
+with cached file length/profiling; 171,811 us with batched runs and overlapped DMA;
+and approximately 65 ms after enabling compiler optimization. The final value is
+about 6.5 times faster than the original capture. These are measured software
+frame times on the physical board, not a claim of TE synchronization or tear-free
+scanout. Final visual assessment was requested from the Windows tester.
+
+The final locally built and flashed application is 1,171,504 bytes, versus 1,710,192
+for the otherwise equivalent unoptimized pipeline. Static RAM is 82,272 / 327,680;
+ELF sections 1,154,731 / 2,097,152. Post-update diagnostics retained the user's one
+card, revision 8 and OS bond, reported no animation error, approximately 96 KiB free
+heap, a 61,428-byte largest block and 5,384 bytes loop-stack margin during playback.
+The serial observer wakes the screen temporarily for the bounded measurement;
+it does not alter the saved timeout or artwork. Upload validation's checked heap
+workspace and 15-second transfer inactivity policy remain in force.
+
+All host sanitizer/parser/codec/flash checks passed with optimization, and the
+actual browser-encoded fixture still reconstructed every frame pixel for pixel.
+The frontend is unchanged from the 60-test passing GIF release. The original GIF
+release `4002d491f59d3ced5066fa12a9ce18d3ad16a066` passed
+[build and Pages deployment](https://github.com/N0rule/LanyardBadge/actions/runs/40737072606).
+Its bare public index and manifest served `2.3.4-4002d491f59d`; app.js, transport.js,
+cache.js, gif.js and style.css matched the source byte for byte, and firmware
+release hashes verified. The optimized follow-up's publication is recorded below.
