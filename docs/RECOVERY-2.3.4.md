@@ -103,7 +103,7 @@ Sources:
 - [Windows pairing ceremonies](https://learn.microsoft.com/en-us/uwp/api/windows.devices.enumeration.devicepairingkinds)
 - [Bluetooth Core LE security and association models](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core-54/out/en/architecture%2C-mixing%2C-and-conventions/architecture.html)
 
-## Validation and Windows release gate
+## Initial validation and Windows release gate
 
 The expanded 48-test browser suite passed, as did ten serial repetitions of the
 original title-preservation regression after changes. The title assertion remains
@@ -396,3 +396,26 @@ The serial capture is bounded and finished without reopening/resetting the board
 Earlier commits in this task contain the committed/draft/cache separation, workspace
 reconciliation, stale-session protection and broader regression coverage described
 above. No existing regression assertion was weakened, skipped or deleted.
+
+
+Final-source repetition: the unchanged original revoked-key title regression passed
+another ten serial repetitions (27.7 seconds), with a separate Playwright output
+folder. The full final suite passed 55/55. CI for source commit
+`6cdd2daa5cd95d3468e95f1fb203b5f024fc609e` also passed its build job, including
+host/browser checks, firmware compilation and installer/site packaging.
+[Release workflow](https://github.com/N0rule/LanyardBadge/actions/runs/40731752056).
+The full binary is 5,024 bytes larger and static RAM 32 bytes higher than the initial
+baseline build recorded above; these totals include diagnostics and the PIN UI.
+
+
+Publication verified: the same workflow completed **successfully**, including Pages
+deployment. The bare canonical index and update manifest serve
+`2.3.4-6cdd2daa5cd9`; index script/style URLs carry revision `6cdd2daa5cd9`.
+Downloaded app.js, transport.js and cache.js match that commit byte for byte.
+All three published firmware files match their release SHA256SUMS. The published
+application is 1,691,856 bytes with SHA-256
+`9a847b18254758d80274c4e756a7cfe6af5c3862bc1770e8935874ad57fff315`.
+The update manifest contains only that application at 0x10000 and retains skip-erase.
+Private backups remain excluded from Git. No additional board reset or flash was
+performed while finalizing publication. Save active edits before refreshing to
+load the new website; same-tab reconnect remains safe without a refresh.
