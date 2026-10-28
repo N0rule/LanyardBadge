@@ -61,7 +61,11 @@
   intendedName = fragment.get('badge') || '';
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   const card = () => deck.cards[selected];
+  const windows = /Windows/.test(navigator.userAgent);
+  let windowsPairingHelp = false;
   function connectionMessage(error) {
+    if (windows && (error.securityOperation || error.bluetoothStage === 'pairing'))
+      return `Encrypted Bluetooth pairing did not complete. Pair ${transport.device?.name || 'your badge'} once in Windows Settings → Bluetooth & devices → Add device → Bluetooth. Choose “Show all devices” if it is hidden, then reconnect here. Your edits are kept.`;
     if (error.bluetoothStage === 'pairing')
       return 'Bluetooth security was rejected. Accept the system pairing request if one appears. If this badge was previously paired and still fails, remove its old system Bluetooth pairing once, then reconnect. Your edits are kept.';
     if (error.bluetoothStage === 'security-read')
@@ -73,7 +77,12 @@
     if (error.name === 'NotAllowedError' || error.name === 'SecurityError')
       return 'Bluetooth permission is unavailable. Check browser permissions and that Bluetooth is turned on.';
     if (error.name === 'NetworkError')
-      return 'Bluetooth could not establish a connection. Keep the badge nearby, close other connected tabs, and try again. On Linux, also check that the Bluetooth service is running.';
+      return (
+        'Bluetooth could not establish a connection. Keep the badge nearby, close other connected tabs, and try again.' +
+        (/Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)
+          ? ' On Linux, also check that the Bluetooth service is running.'
+          : '')
+      );
     if (error.name === 'NotFoundError')
       return 'No badge selected. Keep its connection screen open and scan again.';
     return error.message;
@@ -490,6 +499,10 @@
       throw e;
     }
     transport.change('connected');
+    if (windowsPairingHelp) {
+      $('compatibility').textContent = defaultCompatibility;
+      windowsPairingHelp = false;
+    }
     if ($('remember-badge').checked && transport.device?.id && /^[a-z2-9]{16}$/.test(key)) {
       remembered = {
         id: transport.device.id,
@@ -552,7 +565,14 @@
             ? 'Your badge’s access code has changed. Enter the new code shown on the badge to reconnect. Your unsaved artwork is safe.'
             : connectionMessage(e);
         if (!$('pair-dialog').open) $('pair-dialog').showModal();
-      } else toast(connectionMessage(e));
+      } else {
+        const message = connectionMessage(e);
+        if (windows && (e.securityOperation || e.bluetoothStage === 'pairing')) {
+          $('compatibility').textContent = message;
+          windowsPairingHelp = true;
+        }
+        toast(message);
+      }
     } finally {
       connectionPending = false;
       $('connect').disabled = false;
@@ -608,6 +628,7 @@
     $('compatibility').textContent =
       'Your system may ask to authorize an encrypted Bluetooth connection the first time. Keep that request open while connecting.';
   }
+  const defaultCompatibility = $('compatibility').textContent;
   $('card-form').onsubmit = (e) => e.preventDefault();
   $('title').oninput = (e) => {
     card().title = e.target.value;

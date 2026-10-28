@@ -856,3 +856,35 @@ test('a delayed disconnect event from a closed link does not invalidate a connec
   });
   expect(result).toEqual({ unchanged: true, state: 'pairing' });
 });
+
+for (const securityFailure of [false, true]) {
+  test(`Windows recovery distinguishes encrypted pairing from GATT failure (security=${securityFailure})`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() =>
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/148.0.0.0',
+        configurable: true,
+      }),
+    );
+    await setup(page);
+    await page.evaluate((security) => {
+      if (security) bleMock.disconnectedReads = 3;
+      else bleMock.busyConnects = 3;
+    }, securityFailure);
+    await page.locator('#connect').click();
+    await expect(page.locator('#connection')).toHaveText('Disconnected');
+    if (securityFailure) {
+      await expect(page.locator('#compatibility')).toContainText('Windows Settings');
+      await expect(page.locator('#compatibility')).toContainText('Show all devices');
+      await expect(page.locator('#compatibility')).toContainText('Your edits are kept');
+    } else {
+      await expect(page.locator('#toast')).toContainText('could not establish a connection');
+      await expect(page.locator('#toast')).not.toContainText('pair');
+      await expect(page.locator('#compatibility')).not.toContainText('Windows Settings');
+    }
+    await expect(page.locator('#toast')).not.toContainText('On Linux');
+    await connect(page);
+    await expect(page.locator('#compatibility')).not.toContainText('Windows Settings');
+  });
+}

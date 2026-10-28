@@ -24,6 +24,20 @@ bool Bluetooth::begin() {
     // Encrypted GATT link, with the QR secret providing application-level ownership.
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
     NimBLEDevice::setSecurityAuth(true, false, true);
+    // Keep the host's actual security failure code after disconnection. The
+    // server authentication callback exposes encryption state but not status.
+    // This passive listener must never change GAP handling or expose key data.
+    if (!NimBLEDevice::setCustomGapHandler(
+            [](ble_gap_event *event, void *arg) -> int {
+                auto *self = static_cast<Bluetooth *>(arg);
+                if (event->type == BLE_GAP_EVENT_ENC_CHANGE) {
+                    self->securityStatus_ = event->enc_change.status;
+                    ++self->securityEvents_;
+                }
+                return 0;
+            },
+            this))
+        return false;
     server_ = NimBLEDevice::createServer();
     server_->setCallbacks(this, false);
     server_->advertiseOnDisconnect(true);

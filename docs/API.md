@@ -45,19 +45,19 @@ response inactivity timers refresh for each received chunk. Firmware discards qu
 packets from old connection generations. There is a 15-second transfer inactivity
 timeout and a 20-minute API session lifetime refreshed by authenticated operations.
 
-| Operation | Body / response |
-| --- | --- |
-| POST `/api/pair` | `{password: four-letter-code-or-remembered-credential}` → `{token,credential}` |
-| GET `/api/status` | Diagnostics, storage, settings, current selection, sleep/BLE state |
-| GET `/api/cards` | `{version:2,revision,cards:[...]}` |
-| POST `/api/cards` | Complete deck with matching revision → committed deck |
-| POST `/api/assets` | Exactly 153666 RGB565 BMP bytes → `{id}` |
-| GET `/api/image?id=xxxxxxxx` | Validated image ID → BMP bytes |
-| POST `/api/select` | `{id}` → device status |
-| POST `/api/settings` | brightness, interval, autoplay, rotation, defaultCard, optional screenTimeout and darkMode (boolean) |
-| POST `/api/calibrate` | `{}` → starts optional physical calibration |
-| POST `/api/gc` | `{}` → number of unreferenced images removed |
-| POST `/api/display` | `{}` → returns to artwork |
+| Operation                    | Body / response                                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| POST `/api/pair`             | `{password: four-letter-code-or-remembered-credential}` → `{token,credential}`                       |
+| GET `/api/status`            | Diagnostics, storage, settings, current selection, sleep/BLE state                                   |
+| GET `/api/cards`             | `{version:2,revision,cards:[...]}`                                                                   |
+| POST `/api/cards`            | Complete deck with matching revision → committed deck                                                |
+| POST `/api/assets`           | Exactly 153666 RGB565 BMP bytes → `{id}`                                                             |
+| GET `/api/image?id=xxxxxxxx` | Validated image ID → BMP bytes                                                                       |
+| POST `/api/select`           | `{id}` → device status                                                                               |
+| POST `/api/settings`         | brightness, interval, autoplay, rotation, defaultCard, optional screenTimeout and darkMode (boolean) |
+| POST `/api/calibrate`        | `{}` → starts optional physical calibration                                                          |
+| POST `/api/gc`               | `{}` → number of unreferenced images removed                                                         |
+| POST `/api/display`          | `{}` → returns to artwork                                                                            |
 
 Except pairing, operations require the session token in the request header. Asset
 uploads additionally require the authenticated connection. UUIDs and API paths
@@ -79,3 +79,15 @@ device. An asset uploaded before a failed commit can be reused in the same tab.
 
 BLE firmware updates are not implemented. Firmware installation uses USB manifests,
 not this service.
+
+### Link-security diagnostics
+
+Status responses additionally expose `bluetoothSecurityStatus` (the last NimBLE
+GAP encryption-change result) and `bluetoothSecurityEvents` (its count since boot).
+They survive a disconnect in RAM, not a reboot. Status 0 with count 0 means no
+security result has been observed. With an observed event, status 0 indicates
+successful security state change; also inspect `bluetoothEncrypted` for the live
+link. Native error bases follow the pinned NimBLE host: HCI 0x200, local SMP 0x400,
+peer SMP 0x500. For example, 0x50C is a peer SMP Numeric Comparison Failed rejection.
+These diagnostic values contain no keys, tokens, PINs, or peer addresses. Older
+firmware can omit both fields; older clients may ignore them.

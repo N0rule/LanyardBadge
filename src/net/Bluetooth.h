@@ -23,7 +23,8 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     uint32_t seenGeneration_ = 0, lastActivity_ = 0, received_ = 0, length_ = 0, sent_ = 0;
     uint16_t sequence_ = 0;
     std::atomic<uint16_t> mtu_{23}, handle_{0}, initialInterval_{0};
-    std::atomic<int> disconnectReason_{0};
+    std::atomic<int> disconnectReason_{0}, securityStatus_{0};
+    std::atomic<uint32_t> securityEvents_{0};
     bool receiving_ = false, uploading_ = false, responding_ = false, responseHeader_ = false;
     bool authenticated_ = false, waitingAck_ = false;
     String header_;
@@ -52,6 +53,8 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     void revoke();
     bool connected() const { return connected_; }
     int disconnectReason() const { return disconnectReason_; }
+    int securityStatus() const { return securityStatus_; }
+    uint32_t securityEvents() const { return securityEvents_; }
     bool encrypted() const {
         return connected_ && server_->getPeerInfoByHandle(handle_).isEncrypted();
     }

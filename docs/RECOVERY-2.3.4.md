@@ -114,7 +114,7 @@ An actual ESP32-D0WD-V3 rev 3.1, 4 MB, no PSRAM board at /dev/ttyUSB0 was querie
 Read-only Linux BLE validation passed at MTU 517: encrypted authentication,
 snapshot and separate metadata, full 153666-byte BMP, ranged equivalence and
 invalid range rejection, unchanged two-card collection, revision and settings.
-This is separate from mocked browser tests. No Windows radio test was performed.
+This is separate from mocked browser tests. Initial validation did not include a Windows radio test; the later user-assisted captures below supersede that limitation.
 
 Before claiming Windows reliability, test current Edge and Chrome on Windows 11:
 
@@ -184,3 +184,102 @@ ServicesResolved=false: its stored bond was not occupying the active connection.
 The configured limit is one simultaneous connection; the pinned NimBLE default
 allows three stored bonds. A stored Linux bond is distinct from an active GATT
 connection. Windows retesting on the follow-up release remains pending.
+
+## Windows radio capture: link security rejected by the central
+
+The tester confirmed Badge-287E is the development board attached through CH340.
+On the deployed follow-up website, the sequence remained Connecting, Pairing,
+Disconnected. Clearing site data did not help. Windows Settings did not list a
+badge bond to remove. Its screenshot showed a CSR8510 A10 entry with incomplete
+setup on a metered network; this is a setup clue, not proof of adapter failure.
+
+The first bounded serial capture observed real Windows connections at a 60 ms
+initial interval, no active encryption, no additional stored bond, and disconnect
+codes 531 (0x200 + HCI 0x13, remote termination) and 534 (0x200 + HCI 0x16, local
+termination). The existing authentication callback disconnects an unencrypted
+connection after a failed security procedure. Opening this board's serial port
+restarted it and cleared historical diagnostics, so capture used a single open
+port rather than repeatedly opening it.
+
+A passive GAP listener now retains `bluetoothSecurityStatus` and
+`bluetoothSecurityEvents` in status diagnostics. It does not change security
+configuration, accept pairing, remove bonds, or record keys/PINs. Status is the
+last NimBLE encryption-change event result; events is its count since boot.
+Status zero with zero events means no result yet, not successful authentication.
+
+A fresh private full-flash backup of 4,194,304 bytes was preserved before flashing.
+The on-device partition table matched the expected layout. Only the application
+at 0x10000 was written and esptool verified its hash. The diagnostic binary is
+1,687,904 / 2,097,152 bytes; static RAM is 73,776 / 327,680. Host checks, all 51
+mocked browser tests, compilation and site/manifest validation passed. Actual
+post-update captures retained the same two cards and revision 4.
+
+On the next user-assisted Windows attempt, all three security events reported
+**1292 / 0x50C**: `BLE_HS_SM_PEER_ERR(BLE_SM_ERR_NUMCMP)`. The pinned NimBLE source
+constructs the 0x500 peer-error base from a received SMP Pairing Failed reason;
+0x0C is Numeric Comparison Failed. Encryption never became active. This proves a
+peer-side SMP rejection before application authentication, not its ultimate UI
+or driver cause. It does not prove the user rejected a prompt or that numeric
+comparison was the negotiated association model; the badge advertises NoInputNoOutput.
+
+Relevant primary sources:
+
+- [Bluetooth SMP failure codes](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core-62/out/en/host/security-manager-specification.html)
+- [Chromium WinRT pairing handling](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/device/bluetooth/bluetooth_pairing_winrt.cc)
+- [Chromium default feature settings](https://raw.githubusercontent.com/chromium/chromium/main/device/base/features.cc)
+
+Chromium's ConfirmOnly/ConfirmPinMatch paths require
+`kWebBluetoothConfirmPairingSupport`, disabled by default in current upstream
+source. ProvidePin uses a separate supported path. This is a concrete browser
+compatibility concern for the current Just Works setup, but the tester's browser
+configuration/version and a direct Windows Add device test remain unverified.
+A browser flag is not the production fix. Direct Windows pairing was requested
+as a diagnostic comparison; its outcome is pending. Native security must not be
+removed or changed to an insecure transport just to hide this rejection.
+
+## Verified Windows recovery
+
+Windows Add device initially hid Badge-287E. A passive Linux scan confirmed that
+it was advertising its custom GATT service, without opening a connection. After
+selecting Show all devices in Windows, the tester supplied a screenshot showing
+“Your device is ready to go!” and Badge-287E Connected. They then reopened the
+canonical website and confirmed that the editor connected successfully. No
+adapter driver change, device erase, bond deletion, or reduction in BLE security
+was needed. The pre-existing Linux bond was not an obstacle.
+
+This verifies a working one-time native Windows pairing path on the actual board
+and PC. It does not verify that browser-initiated first-time pairing is reliable.
+The browser path emitted peer SMP rejection 0x50C; the native Windows path succeeded
+with the same firmware/security configuration. Upstream Chromium's disabled
+ConfirmOnly support is consistent with that difference, but the tester's exact
+browser version/feature configuration was not captured. The source flag alone
+must not be presented as proof of their exact browser configuration.
+
+For affected Windows users:
+
+1. Pair once using Windows Settings → Bluetooth & devices → Add device → Bluetooth.
+2. Choose Show all devices if the badge is hidden. On older builds, select Advanced
+   under Bluetooth devices discovery instead.
+3. Select the badge, finish Windows pairing, then connect from the website.
+4. If the website requests its separate access code, open the badge connection
+   screen with BOOT held about two seconds, then enter the displayed code.
+
+Keep the Windows bond for subsequent connections; ordinary reconnects should not
+need Windows Settings. Clearing website data does not establish or remove an OS
+bond. Do not remove unrelated devices when the badge is absent from Settings.
+
+[Microsoft's discovery-filter guidance](https://support.microsoft.com/en-us/windows/hardware/bluetooth/fix-bluetooth-problems-in-windows)
+and [the Show all devices workflow](https://blogs.windows.com/windows-insider/2024/02/08/announcing-windows-11-insider-preview-build-26052-canary-and-dev-channels/)
+explain why the badge can appear in the browser chooser but initially be hidden
+in Windows Settings.
+
+The browser now retains a security-operation marker across connection loss, so
+an encrypted-read failure can offer this verified Windows recovery instead of a
+generic connection error with Linux advice. The guidance stays visible on the
+landing screen and clears after successful authentication. Failures before the
+security read remain classified as GATT connection failures and do not suggest
+pairing. No browser flags are required or recommended.
+
+A real Windows unsaved-edit disconnect/reconnect test has been requested; its
+outcome is pending. The protocol-2 GATT framing, ownership mechanism, partition
+layout, NVS credentials and stored artwork remain compatible.

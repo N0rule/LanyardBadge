@@ -241,6 +241,8 @@ void setup() {
         d["touchRawY"] = touch.raw().y;
         d["bluetoothConnected"] = bluetooth.connected();
         d["bluetoothDisconnectReason"] = bluetooth.disconnectReason();
+        d["bluetoothSecurityStatus"] = bluetooth.securityStatus();
+        d["bluetoothSecurityEvents"] = bluetooth.securityEvents();
         d["bluetoothEncrypted"] = bluetooth.encrypted();
         d["bluetoothBonds"] = bluetooth.bonds();
         d["bluetoothAdvertising"] = bluetooth.advertising();

@@ -201,6 +201,8 @@
           hello = await stage('security-read', () => this.tx.readValue());
           break;
         } catch (error) {
+          // Retain the failed operation even if link loss invalidated the session.
+          error.securityOperation = true;
           const securityPending =
             ['NetworkError', 'UnknownError'].includes(error.name) ||
             /GATT.*(unknown|authenticat|encrypt|authoriz)/i.test(error.message);
