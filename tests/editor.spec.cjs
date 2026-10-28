@@ -832,3 +832,27 @@ test('remote unedited metadata refreshes while a matching local draft stays sepa
   await expect(page.locator('.gallery-card').nth(1)).toContainText('Remote second card');
   expect(await page.evaluate(() => BadgeEditor.conflict)).toBe(true);
 });
+
+test('first connection retries a link lost after successful native discovery', async ({ page }) => {
+  const errors = await setup(page, { mockOptions: { dropDiscovery: 1 } });
+  await connect(page);
+  await expect(page.locator('#studio')).toBeVisible();
+  await expect(page.locator('#toast')).not.toContainText('Previous Bluetooth session closed');
+  expect(await page.evaluate(() => bleMock.dropDiscovery)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('a delayed disconnect event from a closed link does not invalidate a connected replacement', async ({
+  page,
+}) => {
+  await setup(page);
+  await connect(page);
+  const result = await page.evaluate(async () => {
+    badgeDevice.disconnect();
+    await badgeDevice.reconnect();
+    const session = badgeDevice.session;
+    badgeDevice.device.dispatchEvent(new Event('gattserverdisconnected'));
+    return { unchanged: session === badgeDevice.session, state: badgeDevice.state };
+  });
+  expect(result).toEqual({ unchanged: true, state: 'pairing' });
+});

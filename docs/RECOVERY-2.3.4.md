@@ -142,3 +142,30 @@ and transport.js matched the committed files byte for byte. The public update
 manifest identified `2.3.4-61e5b21b8225`, with only firmware.bin at 0x10000.
 The existing installer erase choice remains: leave Erase device unchecked.
 A Windows tester is available; their results are pending.
+
+## Follow-up: “Previous Bluetooth session closed” during initial Windows connection
+
+A Windows tester reported this message before the editor opened. Mocked native
+GATT tests reproduced the identical message when discovery returned successfully
+as a disconnection invalidated the session. The existing guard treated both a
+lost link and a deliberately superseded session as a generic Error. Consequently,
+the bounded connection retry loop, which accepts NetworkError/UnknownError, did
+not retry this transient disconnect.
+
+Session guards now retain the originating AbortController. A disconnect of that
+same session is a NetworkError at the GATT stage; an operation from an independently
+replaced session remains an AbortError and cannot disconnect the replacement.
+Duplicate loss callbacks are idempotent, and a delayed disconnect event does not
+invalidate a replacement whose GATT connection is already established. Pairing
+and metadata guards use the same distinction.
+
+A second deterministic test reproduced the identical toast when an aborted
+artwork-cache promise rejected after a replacement session had connected. Canceled
+preview promises now finish silently, while failures in a current preview still
+propagate. This prevents an old request from changing the replacement preview's
+help text or reporting a false connection failure.
+
+All three new regressions failed before their fixes. These are mocked timing
+reproductions, not evidence that either sequence caused the tester's Windows
+radio failure. Native Windows pairing, encryption, firmware and credentials are
+unchanged. Windows retesting of the follow-up remains necessary.

@@ -273,6 +273,10 @@
     imageLoads.set(loadKey, load);
     try {
       await load;
+    } catch (error) {
+      // A canceled load belongs to the old selection/session. Its native promise
+      // may reject after a new editor is connected; do not report it there.
+      if (!signal.aborted) throw error;
     } finally {
       if (imageLoads.get(loadKey) === load) imageLoads.delete(loadKey);
     }
@@ -365,15 +369,16 @@
   async function load({ preserve = true, snapshot } = {}) {
     const generation = ++loadGeneration,
       session = transport.session,
+      controller = transport.sessionAbort,
       deviceId = activeBadgeId;
     const serverDeck = structuredClone(snapshot?.deck || (await transport.getCards())),
       s = snapshot?.status || (await transport.getStatus());
-    if (
-      generation !== loadGeneration ||
-      session !== transport.session ||
-      deviceId !== activeBadgeId
-    )
-      throw Error('Previous Bluetooth session closed. Your edits are kept.');
+    transport.assertSession(session, controller);
+    if (generation !== loadGeneration || deviceId !== activeBadgeId)
+      throw new DOMException(
+        'A newer collection load replaced this request. Your edits are kept.',
+        'AbortError',
+      );
     stopArtwork();
     const nextCommitted = structuredClone(serverDeck);
     if (preserve && changed) {
@@ -463,13 +468,18 @@
   });
   async function finishPair(password) {
     const session = transport.session,
+      controller = transport.sessionAbort,
       deviceId = transport.device.id;
     const paired = await transport.pair(password);
     key = paired.credential || password;
     useBadge(transport.device.id);
     const scope = await artworkCache.scope(deviceId, key);
-    if (session !== transport.session || deviceId !== transport.device?.id)
-      throw Error('Previous Bluetooth session closed. Your edits are kept.');
+    transport.assertSession(session, controller);
+    if (deviceId !== transport.device?.id)
+      throw new DOMException(
+        'A different badge replaced this connection. Your edits are kept.',
+        'AbortError',
+      );
     cacheScope = scope;
     // Set connected only after real pairing and successful metadata reads.
     connected = true;
@@ -521,7 +531,7 @@
           // while a saved artwork download is active. Reuse its granted device.
           if (
             !transport.device ||
-            ['pairing', 'security-read'].includes(error.bluetoothStage) ||
+            ['pairing', 'security-read', 'superseded'].includes(error.bluetoothStage) ||
             attempt >= 2 ||
             !['NetworkError', 'UnknownError'].includes(error.name)
           )

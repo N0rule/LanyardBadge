@@ -15,9 +15,10 @@
       this.dispatchEvent(new Event('connectionchange'));
     }
     async pair(password) {
-      const session = this.session;
+      const session = this.session,
+        controller = this.sessionAbort;
       const r = await this.json('/api/pair', { password, includeSnapshot: true });
-      if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+      this.assertSession?.(session, controller);
       this.token = r.token;
       return r;
     }
@@ -98,7 +99,7 @@
         this.device.removeEventListener('gattserverdisconnected', this.disconnectListener);
       this.device = device;
       this.disconnectListener = (event) => {
-        if (event.target === this.device) this.lost();
+        if (event.target === this.device && !this.device.gatt.connected) this.lost();
       };
       device.addEventListener('gattserverdisconnected', this.disconnectListener);
     }
@@ -136,20 +137,42 @@
         throw e;
       }
     }
+    sessionError(controller) {
+      // A lost link invalidates requests just like a replacement session, but
+      // only the former is a retryable connection failure. Keep that distinction.
+      const disconnected =
+        controller === this.sessionAbort && controller?.signal.reason?.bluetoothDisconnected;
+      return Object.assign(
+        new DOMException(
+          disconnected
+            ? 'Bluetooth disconnected during connection setup. Your edits are kept. Reconnect and retry.'
+            : 'Previous Bluetooth session closed.',
+          disconnected ? 'NetworkError' : 'AbortError',
+        ),
+        {
+          staleSession: true,
+          bluetoothStage: disconnected ? 'gatt' : 'superseded',
+        },
+      );
+    }
+    assertSession(session, controller) {
+      if (session !== this.session) throw this.sessionError(controller);
+    }
     async open() {
       this.sessionAbort.abort(Error('Previous Bluetooth session closed.'));
       this.pending?.reject(Error('Previous Bluetooth session closed.'));
       this.sessionAbort = new AbortController();
-      const session = ++this.session;
+      const session = ++this.session,
+        controller = this.sessionAbort;
       const stage = async (name, operation) => {
         try {
-          if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+          this.assertSession(session, controller);
           const result = await operation();
-          if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+          this.assertSession(session, controller);
           return result;
         } catch (error) {
+          if (session !== this.session) throw this.sessionError(controller);
           error.bluetoothStage ||= name;
-          if (session !== this.session) error.staleSession = true;
           throw error;
         }
       };
@@ -243,7 +266,12 @@
       }
     }
     lost() {
-      this.sessionAbort.abort(Error('Bluetooth disconnected. Your edits are kept.'));
+      if (this.sessionAbort.signal.aborted) return;
+      this.sessionAbort.abort(
+        Object.assign(Error('Bluetooth disconnected. Your edits are kept.'), {
+          bluetoothDisconnected: true,
+        }),
+      );
       ++this.session;
       this.change('disconnected');
       this.token = '';

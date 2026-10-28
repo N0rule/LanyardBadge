@@ -190,13 +190,11 @@ test('a delayed cache response never replaces newer source artwork', async ({ pa
     c.getContext('2d').fillRect(0, 0, 640, 480);
     return c.toDataURL().split(',')[1];
   });
-  await page
-    .locator('#image-file')
-    .setInputFiles({
-      name: 'new.png',
-      mimeType: 'image/png',
-      buffer: Buffer.from(source, 'base64'),
-    });
+  await page.locator('#image-file').setInputFiles({
+    name: 'new.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(source, 'base64'),
+  });
   await expect(page.locator('#crop-controls')).toBeEnabled();
   await page.evaluate(() => {
     globalThis.newSource = BadgeEditor.state.image;
@@ -206,4 +204,29 @@ test('a delayed cache response never replaces newer source artwork', async ({ pa
     () => BadgeEditor.state?.image === newSource && BadgeEditor.state.image.width === 640,
   );
   expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
+});
+
+test('a canceled preview cannot report an old-session error over a replacement connection', async ({
+  page,
+}) => {
+  await setup(page);
+  await page.evaluate(() => {
+    const original = BadgeArtworkCache.ArtworkCache.prototype.get;
+    BadgeArtworkCache.ArtworkCache.prototype.get = function (...args) {
+      BadgeArtworkCache.ArtworkCache.prototype.get = original;
+      return new Promise((resolve, reject) => {
+        globalThis.rejectOldPreview = reject;
+      });
+    };
+  });
+  await page.locator('details.storage summary').click();
+  await page.locator('#reload').click();
+  await page.waitForFunction(() => !!globalThis.rejectOldPreview);
+  await page.evaluate(() => badgeDevice.disconnect());
+  await page.locator('#connect').click();
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await page.waitForFunction(() => !!BadgeEditor.state);
+  await page.evaluate(() => rejectOldPreview(Error('Previous Bluetooth session closed.')));
+  await expect(page.locator('#toast')).not.toContainText('Previous Bluetooth session closed.');
+  await expect(page.locator('#preview-help')).not.toContainText('Preview unavailable');
 });

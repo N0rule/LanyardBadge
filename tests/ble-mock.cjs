@@ -37,6 +37,7 @@ function installMock(config = {}) {
     password: 'abcdefghijklmnop',
     shortCode: 'ABCD',
     abandonedResponse: !!localStorage.getItem('ble.mock.abandoned'),
+    dropDiscovery: config.dropDiscovery || 0,
     mtu: 23,
     header: [],
     data: [],
@@ -236,9 +237,13 @@ function installMock(config = {}) {
       this.connected = true;
       encryptedRead = false;
       return {
-        getPrimaryService: async () => ({
-          getCharacteristic: async (uuid) => (uuid.includes('1001-') ? rx : tx),
-        }),
+        getPrimaryService: async () => {
+          if (mock.dropDiscovery > 0) {
+            mock.dropDiscovery--;
+            device.gatt.disconnect();
+          }
+          return { getCharacteristic: async (uuid) => (uuid.includes('1001-') ? rx : tx) };
+        },
       };
     },
     disconnect() {
