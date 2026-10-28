@@ -169,3 +169,18 @@ All three new regressions failed before their fixes. These are mocked timing
 reproductions, not evidence that either sequence caused the tester's Windows
 radio failure. Native Windows pairing, encryption, firmware and credentials are
 unchanged. Windows retesting of the follow-up remains necessary.
+
+Follow-up release `58a7d52e3f63680edba071321602dca6742b0aa1` passed all 51
+browser tests, 12 focused repeated regressions, host checks and package validation.
+[CI build and deployment passed](https://github.com/N0rule/LanyardBadge/actions/runs/40678468319).
+The canonical index references `58a7d52e3f63`; served app.js and transport.js
+matched the committed files byte for byte.
+
+The Windows tester confirmed accepting the system prompt, seeing the error before
+the editor opened, and seeing the same error after clearing website data on the
+previous release. They also previously used the badge from Linux. A subsequent
+read-only BlueZ check on this development host showed Paired=true, Connected=false,
+ServicesResolved=false: its stored bond was not occupying the active connection.
+The configured limit is one simultaneous connection; the pinned NimBLE default
+allows three stored bonds. A stored Linux bond is distinct from an active GATT
+connection. Windows retesting on the follow-up release remains pending.
