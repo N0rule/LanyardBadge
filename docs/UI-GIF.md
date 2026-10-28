@@ -120,7 +120,7 @@ scanout. Final visual assessment was requested from the Windows tester.
 The final locally built and flashed application is 1,171,504 bytes, versus 1,710,192
 for the otherwise equivalent unoptimized pipeline. Static RAM is 82,272 / 327,680;
 ELF sections 1,154,731 / 2,097,152. Post-update diagnostics retained the user's one
-card, revision 8 and OS bond, reported no animation error, approximately 96 KiB free
+card, revision 8 and OS bond, reported no animation error, 96,684 bytes free
 heap, a 61,428-byte largest block and 5,384 bytes loop-stack margin during playback.
 The serial observer wakes the screen temporarily for the bounded measurement;
 it does not alter the saved timeout or artwork. Upload validation's checked heap
@@ -160,3 +160,33 @@ bounce/real release, return-after-swipe cancellation, existing taps/swipes and w
 consumption. CYD2USB compilation and flash bounds passed. Final menu firmware:
 1,171,904 / 2,097,152 bytes; static RAM 82,280 / 327,680; ELF sections 1,155,143.
 The user chose the faster behavior before it was installed.
+
+
+The tester then confirmed **“Opens promptly now”** after testing the installed
+half-second hold. The exact continuous wake-and-hold sequence was not separately
+reported. The saved GIF remains one card/revision 8, with no decoder error and approximately 65 ms worst frame.
+
+
+## Final publication
+
+Code release `8ab5f53a73346ea88770c9afea0e6bb4b737cc37` passed
+[CI build and Pages deployment](https://github.com/N0rule/LanyardBadge/actions/runs/40745525420).
+The bare canonical index and update manifest serve `2.3.4-8ab5f53a7334`. Downloaded
+app.js, transport.js, cache.js, gif.js and style.css match the committed source byte
+for byte. All published firmware files match their release SHA256SUMS. The final
+published application is 1,171,904 bytes, SHA-256
+`fbdc2470a9f8207bb09a97ca35b527b72736a1550542bcd838ac3de1a81605a3`.
+The update manifest contains only the application at 0x10000 with skip-erase enabled.
+
+The installed local build is the same final source; its separately verified local
+binary hash is `afd951bf36f1898692027ba76744893ce8568276c4cacd477c0efce5f77a6400`.
+The user confirmed animation appearance and prompt menu entry on the actual board.
+The saved GIF and current settings remain intact; intentional old-card deletions
+were not undone. Private backups remain excluded from Git. Diagnostic observers
+were stopped and the USB serial port released without another flash.
+
+Remaining checks: erased-board first-install artwork seeding, other display
+variants and browsers beyond the tested Helium configuration, extreme 300-frame/
+1 MiB radio workloads, and separate continuous wake-and-hold observation. There
+is no TE pin in the verified wiring, so the measured/accepted improvement is not
+advertised as synchronized or universally tear-free scanout.
