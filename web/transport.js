@@ -15,7 +15,7 @@
       this.dispatchEvent(new Event('connectionchange'));
     }
     async pair(password) {
-      const r = await this.json('/api/pair', { password });
+      const r = await this.json('/api/pair', { password, includeSnapshot: true });
       this.token = r.token;
       return r;
     }
@@ -34,6 +34,38 @@
       return this.request('/api/assets', { method: 'POST', body, raw: true, progress }).then((r) =>
         r.json(),
       );
+    }
+    async getArtwork(id, { rangeBytes = 0, signal, onProgress } = {}) {
+      const total = 153666;
+      signal?.throwIfAborted();
+      if (!rangeBytes) {
+        const response = await this.request('/api/image?id=' + id);
+        const bytes = await response.arrayBuffer();
+        signal?.throwIfAborted();
+        if (bytes.byteLength !== total)
+          throw Error('Incomplete card preview. Try reloading the collection.');
+        onProgress?.(100);
+        return bytes;
+      }
+      // Bound each response to a few connection events. Foreground API operations
+      // queued during a range get their turn before the next range is requested.
+      const chunk = Math.min(rangeBytes, 4096, Math.max(256, (this.packetBytes - 7) * 8));
+      const output = new Uint8Array(total);
+      for (let offset = 0; offset < total; offset += chunk) {
+        signal?.throwIfAborted();
+        const length = Math.min(chunk, total - offset);
+        const response = await this.request(
+          `/api/image?id=${id}&offset=${offset}&length=${length}`,
+        );
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        signal?.throwIfAborted();
+        if (bytes.length !== length)
+          throw Error('Incomplete card preview. Try reloading the collection.');
+        output.set(bytes, offset);
+        onProgress?.(Math.floor(((offset + length) * 100) / total));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      return output.buffer;
     }
     selectCard(id) {
       return this.json('/api/select', { id });

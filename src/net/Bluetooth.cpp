@@ -111,6 +111,7 @@ void Bluetooth::reset() {
     receiving_ = uploading_ = responding_ = responseHeader_ = authenticated_ = false;
     request_ = response_ = token_ = "";
     responseFile_.close();
+    fileOffset_ = fileLength_ = 0;
     header_ = "";
     waitingAck_ = false;
     lastActivity_ = millis();
@@ -277,17 +278,23 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
             api_.cardAssetReady();
             answer(201, String("{\"id\":\"") + id + "\"}");
         } else if (method_ == "GET" && path_.startsWith("/api/image?id=")) {
-            String id = path_.substring(14);
-            if (!assets_.bitmapExists(id.c_str())) {
+            ImageRead read;
+            if (!imageRead(path_.c_str() + 14, read)) {
+                fail(422, "Invalid artwork read range");
+                return;
+            }
+            if (!assets_.bitmapExists(read.id)) {
                 fail(404, "Image not found");
                 return;
             }
-            responseFile_ = LittleFS.open(assets_.imagePath(id.c_str()), "r");
+            responseFile_ = LittleFS.open(assets_.imagePath(read.id), "r");
             if (!responseFile_) {
                 fail(404, "Image unavailable");
                 return;
             }
-            answer(200, "");
+            fileOffset_ = read.offset;
+            fileLength_ = read.length;
+            answer(read.ranged ? 206 : 200, "");
         } else {
             String out;
             int code = api_.localRequest(method_, path_, request_, token_, out);
@@ -299,7 +306,7 @@ void Bluetooth::packet(const uint8_t *p, size_t n) {
         fail(400, "Unknown transfer operation");
 }
 void Bluetooth::transmit() {
-    uint32_t total = responseFile_ ? responseFile_.size() : response_.length();
+    uint32_t total = responseFile_ ? fileLength_ : response_.length();
     if (!responseHeader_) {
         uint8_t code[2] = {uint8_t(responseCode_), uint8_t(responseCode_ >> 8)};
         if (notify(1, total, code, sizeof(code)))
@@ -313,7 +320,7 @@ void Bluetooth::transmit() {
         size_t count =
             std::min<size_t>(std::min<size_t>(mtu_ > 10 ? mtu_ - 10 : 13, 500), total - sent_);
         if (responseFile_) {
-            responseFile_.seek(sent_);
+            responseFile_.seek(fileOffset_ + sent_);
             if (responseFile_.read(chunk, count) != count) {
                 overflow_ = true;
                 return;

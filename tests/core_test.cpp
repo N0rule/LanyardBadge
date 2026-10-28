@@ -56,6 +56,16 @@ void testCache() {
     assert(cache.read(source, row, 1) == 0);
 }
 int main() {
+    ImageRead read;
+    assert(imageRead("abcdef01", read) && read.length == bitmapBytes && !read.ranged);
+    assert(imageRead("abcdef01&offset=153600&length=66", read) && read.ranged &&
+           read.offset == 153600 && read.length == 66);
+    for (const char *query :
+         {"", "../a.bmp", "ABCDEF01", "abcdef01&offset=-1&length=1",
+          "abcdef01&offset=0&length=4097", "abcdef01&offset=0&length=0",
+          "abcdef01&offset=153666&length=1", "abcdef01&offset=153665&length=2",
+          "abcdef01&offset=99999999999999999999999&length=1", "abcdef01&offset=0&length=1&extra=2"})
+        assert(!imageRead(query, read));
     testCache();
     char code[5], sameCode[5], otherCode[5];
     shortPairingCode("abcdefghijklmnop", code);

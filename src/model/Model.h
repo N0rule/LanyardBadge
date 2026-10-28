@@ -30,6 +30,7 @@ struct Deck {
 void cardToJson(const Card &, JsonObject);
 bool cardFromJson(JsonObjectConst, Card &, String &error);
 void deckToJson(const Deck &, JsonDocument &);
+void deckToJson(const Deck &, JsonObject);
 bool deckFromJson(JsonVariantConst, Deck &, String &error);
 void defaults(Deck &);
 } // namespace badge

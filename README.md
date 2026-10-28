@@ -5,7 +5,7 @@ and upload it over Bluetooth. No account, native app, Wi-Fi setup, SD card or PS
 
 **[Open the companion editor](https://n0rule.github.io/LanyardBadge/)**
 
-The current firmware is 2.3.3. It targets the 4 MB ESP32 CYD2USB with ST7789 and
+The current firmware is 2.3.4. It targets the 4 MB ESP32 CYD2USB with ST7789 and
 XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
 
 ## Use your badge
@@ -146,3 +146,9 @@ GIF preparation is under development: real browser frame decoding, shared artwor
 transforms and changed-region export have automated coverage. GIF selection and
 badge playback remain unavailable until the device pipeline is validated. See
 [GIF development status](docs/GIF.md).
+
+The editor caches validated artwork in the browser, so refreshes and reconnects
+reuse unchanged cards. It still authenticates and reads current card metadata.
+Images you upload are prepared and cached on the client. Firmware 2.3.4 also lets
+uncached previews yield to other Bluetooth controls; an initial uncached preview
+still requires a transfer. Clearing site data removes this disposable cache.

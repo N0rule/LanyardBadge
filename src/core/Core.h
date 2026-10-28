@@ -73,6 +73,47 @@ inline bool validId(const char *id) {
             return false;
     return true;
 }
+constexpr uint32_t imageReadMax = 4096;
+struct ImageRead {
+    char id[9]{};
+    uint32_t offset = 0, length = bitmapBytes;
+    bool ranged = false;
+};
+inline bool imageRead(const char *query, ImageRead &out) {
+    if (!query || strlen(query) < 8)
+        return false;
+    ImageRead result;
+    memcpy(result.id, query, 8);
+    if (!validId(result.id))
+        return false;
+    const char *p = query + 8;
+    if (*p) {
+        if (strncmp(p, "&offset=", 8))
+            return false;
+        p += 8;
+        auto decimal = [&](uint32_t &value) {
+            if (*p < '0' || *p > '9')
+                return false;
+            value = 0;
+            while (*p >= '0' && *p <= '9') {
+                unsigned digit = *p++ - '0';
+                if (value > (bitmapBytes - digit) / 10)
+                    return false;
+                value = value * 10 + digit;
+            }
+            return true;
+        };
+        if (!decimal(result.offset) || strncmp(p, "&length=", 8))
+            return false;
+        p += 8;
+        if (!decimal(result.length) || *p || !result.length || result.length > imageReadMax ||
+            result.offset >= bitmapBytes || result.length > bitmapBytes - result.offset)
+            return false;
+        result.ranged = true;
+    }
+    out = result;
+    return true;
+}
 inline uint32_t read32(const uint8_t *p) {
     return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
 }

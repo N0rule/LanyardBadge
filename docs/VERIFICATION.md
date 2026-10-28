@@ -399,3 +399,45 @@ files) without replacing existing artwork with a single frame. Host tests check 
 between the new top-down pixel export and the existing BMP exporter. Static BMP
 output is unchanged. No C++ or hardware settings changed for this foundation.
 See `docs/GIF.md` for the implemented boundary and remaining playback work.
+
+## 2.3.4 browser caching and connection loading — 2026-10-28
+
+The old client re-downloaded the selected 153,666-byte artwork after every refresh.
+Real Chromium / BlueZ / badge measurements (one cold connection and one refresh
+per version, same saved artwork) are retained in `test-results/cache-before.json`
+and `cache-after.json`:
+
+| Case | Connection/UI available | Preview ready | Artwork bytes |
+| --- | ---: | ---: | ---: |
+| Previous client, cold | 1.420 s | 11.026 s | 153,666 |
+| Previous client, refresh | 0.895 s | 10.641 s | 153,666 |
+| New client + 2.3.4, cold | 1.482 s | 16.120 s | 153,666 |
+| New client + 2.3.4, refresh | 0.710 s | 0.712 s | 0 |
+
+These are individual functional measurements, not latency guarantees. First-use
+range framing is slower than a monolithic image response on this setup. The
+tradeoff lets foreground requests run between ranges; cached refreshes avoid the
+image transfer entirely. The UI and replacement-artwork controls become available
+before an uncached preview completes. No throughput improvement is claimed for
+cold downloads.
+
+Thirty-seven automated browser tests pass, including cache persistence, badge /
+credential isolation, corrupt-entry detection, browser storage denial, explicit
+forget, asset-ID invalidation, client-upload cache seeding and ranged-response
+scheduling. These use simulated GATT; the timing runs above used the actual badge.
+Host ASan/UBSan tests cover range parsing, overflow, malformed queries and end
+bounds. Firmware compiled and flashed through the guarded uploader: application
+1,686,832 bytes, static RAM 73,760 bytes. Site packaging, installation manifests
+and flash-policy tests pass. No filesystem or partition writes were uploaded.
+
+A fresh pre-flash 4 MiB snapshot of the live collection is retained at
+`backups/before-cache-live-2.3.4-4mb.bin`, SHA-256
+`e64bdc4fdeea3b21179b46f879341fdef7771eab1840b01b1cd325fdcb5797f1`.
+
+A separate real Bleak/BlueZ client verified the authenticated snapshot against the
+original collection, compared beginning/middle/end ranges byte-for-byte with a
+legacy full-file read, rejected an out-of-bounds request, and continued using the
+same connection. The complete saved manifest (including revision), selection,
+brightness, theme, slideshow, orientation, calibration flag and timeout matched
+the pre-update values. Evidence: `cache-hardware-verification.json`. No benchmark
+artwork was added: the test used the owner's existing artwork read-only.

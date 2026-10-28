@@ -30,6 +30,7 @@ class Bluetooth : public NimBLEServerCallbacks, public NimBLECharacteristicCallb
     int responseCode_ = 200;
     String request_, method_, path_, token_, response_, name_;
     File responseFile_;
+    uint32_t fileOffset_ = 0, fileLength_ = 0;
     void reset();
     void packet(const uint8_t *, size_t);
     bool notify(uint8_t operation, uint32_t value, const uint8_t *data = nullptr, size_t size = 0);

@@ -4,7 +4,10 @@
   const $ = (id) => document.getElementById(id),
     { BluetoothTransport } = BadgeTransport;
   const transport = (globalThis.badgeDevice = new BluetoothTransport());
-  const states = new Map(),
+  let states = new Map();
+  const artworkCache = new BadgeArtworkCache.ArtworkCache(),
+    imageLoads = new Map(),
+    workspaces = new Map(),
     canvas = $('preview'),
     context = canvas.getContext('2d');
   const hex = (n) => '#' + n.toString(16).padStart(6, '0');
@@ -31,6 +34,10 @@
     toastTimer,
     frame = 0,
     drag = null;
+  let cacheScope = null,
+    activeBadgeId = null,
+    wantedArtwork = '',
+    artworkAbort = new AbortController();
   let key = '',
     intendedName = '',
     connectionPending = false,
@@ -127,9 +134,13 @@
     $('crop-controls').disabled = !s;
     $('crop-controls').hidden = !s;
     $('letterbox-control').hidden = !s || s.fit !== 'contain';
-    $('artwork-action').textContent = s ? 'Replace artwork' : 'Choose artwork';
+    $('artwork-action').textContent = s || card().image ? 'Replace artwork' : 'Choose artwork';
     $('artwork-status').textContent = s ? 'Choose a different file' : 'PNG, JPEG, WebP or BMP';
-    $('preview-help').textContent = s ? 'Drag artwork to position it.' : 'Choose artwork to begin.';
+    $('preview-help').textContent = s
+      ? 'Drag artwork to position it.'
+      : card().image
+        ? 'Loading card preview…'
+        : 'Choose artwork to begin.';
     canvas.classList.toggle('has-artwork', !!s);
     actions();
     if (!s) return;
@@ -183,17 +194,59 @@
     ctx.restore();
     return thumbCanvas.toDataURL();
   }
-  async function imageFor(c) {
-    if (!c.image || states.has(c.id) || !connected) return;
-    const response = await transport.request('/api/image?id=' + c.image);
-    const bytes = await response.arrayBuffer(),
-      off = document.createElement('canvas');
-    off.width = 240;
-    off.height = 320;
-    off.getContext('2d').putImageData(new ImageData(BadgeCodec.decodeBMP(bytes), 240, 320), 0, 0);
-    if (!states.has(c.id))
+  function wantArtwork(c) {
+    const wanted = c?.image && cacheScope ? cacheScope.key + '/' + c.image : '';
+    if (wanted !== wantedArtwork) {
+      artworkAbort.abort();
+      artworkAbort = new AbortController();
+      wantedArtwork = wanted;
+      imageLoads.clear();
+    }
+  }
+  function stopArtwork() {
+    artworkAbort.abort();
+    artworkAbort = new AbortController();
+    wantedArtwork = '';
+    imageLoads.clear();
+  }
+  async function imageFor(c, cachedOnly = false) {
+    if (!c.image || states.has(c.id) || !connected || !cacheScope) return;
+    const scope = cacheScope,
+      asset = c.image;
+    if (!cachedOnly) wantArtwork(c);
+    const signal = artworkAbort.signal,
+      loadKey = scope.key + '/' + c.id + '/' + asset + '/' + cachedOnly;
+    if (imageLoads.has(loadKey)) return imageLoads.get(loadKey);
+    const load = (async () => {
+      let bytes = await artworkCache.get(scope, asset);
+      if (!bytes && cachedOnly) return;
+      if (signal.aborted || !connected) return;
+      if (!bytes) {
+        bytes = await transport.getArtwork(asset, {
+          rangeBytes: Number(status.imageReadMax) || 0,
+          signal,
+          onProgress: (percent) => {
+            if (!signal.aborted && c.id === card().id)
+              $('preview-help').textContent = `Loading card… ${percent}%`;
+          },
+        });
+        await artworkCache.put(scope, asset, bytes);
+      }
+      if (
+        signal.aborted ||
+        !connected ||
+        cacheScope?.key !== scope.key ||
+        !deck.cards.some((card) => card.id === c.id && card.image === asset) ||
+        states.has(c.id)
+      )
+        return;
+      const off = document.createElement('canvas');
+      off.width = 240;
+      off.height = 320;
+      off.getContext('2d').putImageData(new ImageData(BadgeCodec.decodeBMP(bytes), 240, 320), 0, 0);
       states.set(c.id, {
         image: off,
+        assetId: asset,
         zoom: 1,
         x: 0,
         y: 0,
@@ -201,10 +254,39 @@
         fit: 'cover',
         dirty: false,
       });
-    if (c.id === card().id) {
-      sync();
-      schedule();
+      if (c.id === card().id) {
+        sync();
+        schedule();
+      } else gallery();
+    })();
+    imageLoads.set(loadKey, load);
+    try {
+      await load;
+    } finally {
+      if (imageLoads.get(loadKey) === load) imageLoads.delete(loadKey);
     }
+  }
+  function loadPreview(c, cachedOnly = false) {
+    imageFor(c, cachedOnly).catch((error) => {
+      if (error.name !== 'AbortError' && connected && c.id === card().id) {
+        $('preview-help').textContent = 'Preview unavailable. Choose artwork to replace it.';
+        toast(error.message);
+      }
+    });
+  }
+  function useBadge(deviceId) {
+    if (activeBadgeId === deviceId) return;
+    stopArtwork();
+    if (activeBadgeId) workspaces.set(activeBadgeId, { deck, selected, states, changed });
+    const saved = workspaces.get(deviceId);
+    if (saved) ({ deck, selected, states, changed } = saved);
+    else {
+      states = new Map();
+      changed = false;
+      selected = 0;
+      deck = { version: 2, revision: 0, cards: [blank()] };
+    }
+    activeBadgeId = deviceId;
   }
   function gallery() {
     $('card-list').replaceChildren();
@@ -253,10 +335,11 @@
         : 'Choose artwork to begin';
     $('save-state').classList.toggle('unsaved', changed);
     if (!busy) $('upload-state').hidden = true;
+    wantArtwork(c);
     sync();
     gallery();
     schedule();
-    imageFor(c).catch((e) => toast(e.message));
+    loadPreview(c);
   }
   function updateStatus(s) {
     status = s;
@@ -265,9 +348,10 @@
     $('storage-meter').value = s.storageTotal ? (s.storageUsed / s.storageTotal) * 100 : 0;
     gallery();
   }
-  async function load({ preserve = false } = {}) {
-    const serverDeck = await transport.getCards(),
-      s = await transport.getStatus();
+  async function load({ preserve = false, snapshot } = {}) {
+    const serverDeck = snapshot?.deck || (await transport.getCards()),
+      s = snapshot?.status || (await transport.getStatus());
+    stopArtwork();
     if (preserve && changed) {
       // Keep all edits. Matching IDs overlay the freshly read collection; new drafts append.
       const edited = deck.cards,
@@ -294,6 +378,8 @@
     }
     updateStatus(s);
     edit();
+    // Fill gallery thumbnails from this browser's cache only. No bulk BLE preload.
+    for (const c of deck.cards) if (c.id !== card().id) loadPreview(c, true);
   }
   const labels = {
     searching: 'Searching…',
@@ -307,6 +393,7 @@
   transport.addEventListener('connectionchange', () => {
     $('connection').textContent = labels[transport.state] || transport.state;
     if (transport.state === 'disconnected') {
+      stopArtwork();
       connected = false;
       $('connect').textContent = 'Reconnect badge';
       $('device-open').disabled = true;
@@ -322,10 +409,12 @@
   async function finishPair(password) {
     const paired = await transport.pair(password);
     key = paired.credential || password;
-    // Set connected only after real pairing and successful reads.
+    useBadge(transport.device.id);
+    cacheScope = await artworkCache.scope(transport.device.id, key);
+    // Set connected only after real pairing and successful metadata reads.
     connected = true;
     try {
-      await load({ preserve: changed });
+      await load({ preserve: changed, snapshot: paired.snapshot });
     } catch (e) {
       connected = false;
       throw e;
@@ -399,6 +488,7 @@
   $('connect').onclick = () => connectBadge();
   $('disconnect-top').onclick = () => transport.disconnect();
   $('forget-badge').onclick = () => {
+    if (transport.device?.id) void artworkCache.clearDevice(transport.device.id);
     transport.disconnect();
     transport.device = null;
     key = intendedName = '';
@@ -455,6 +545,7 @@
   $('image-file').onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    stopArtwork();
     lock(true);
     try {
       if (file.size > 30 * 1024 * 1024) throw Error('Choose artwork smaller than 30 MB.');
@@ -496,6 +587,7 @@
     } finally {
       e.target.value = '';
       lock(false);
+      loadPreview(card());
     }
   };
   function transform() {
@@ -665,6 +757,7 @@
           'Choose artwork for this card before uploading. Your original card stays on the badge.',
         );
       if (!s && !c.image) throw Error('Choose artwork for your card.');
+      stopArtwork();
       lock(true);
       progress('Preparing card');
       let imageId = c.image;
@@ -683,6 +776,7 @@
           );
           imageId = result.id;
           s.uploadedId = imageId;
+          await artworkCache.put(cacheScope, imageId, bytes);
         }
       }
       progress('Saving card');

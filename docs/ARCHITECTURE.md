@@ -203,3 +203,36 @@ image exists. The filename supplies a default ASCII title without replacing a
 custom title. Local thumbnails use the same artwork transform as export. Source
 images remain unresampled between edits. File decoding and upload lock navigation
 to keep operations attached to the intended card; failures retain the edit state.
+
+## Browser artwork cache and loading (2.3.4)
+
+The badge remains authoritative for card metadata. An opt-in pairing snapshot
+returns fresh metadata and status in the authenticated response; older firmware
+falls back to the existing reads. The editor does not display a connected state
+based on cached metadata or open a saved collection without real authentication.
+
+Immutable artwork bytes are cached in IndexedDB by browser-granted badge ID,
+SHA-256 credential fingerprint and artwork ID. Credential rotation changes the
+namespace, including after a fresh installation. Records include a byte digest
+and BMP validation; corrupt records become misses. The disk cache retains at most
+64 assets; its memory front retains 20. Storage denial/quota/blocked operations
+fall back to memory or a normal device read. Forget badge clears its artwork
+cache. These disposable copies never replace the badge's files or store additional
+copies of pairing credentials. Unsaved in-memory workspaces stay bound to badge
+identity when switching devices.
+
+The selected card loads lazily; other gallery thumbnails hydrate from local cache
+only. Concurrent requests for the same preview are coalesced. Uploads seed the
+cache with the BMP already prepared on the client, including before metadata
+retry; no image read-back is needed. Cropping, rotation, resizing, RGB565 encoding,
+preview decoding and thumbnails run on the client. The badge receives final
+validated display-ready pixels and commits its own files/metadata.
+
+Uncached reads on 2.3.4 use authenticated bounded ranges (up to 4096 bytes), with
+relative response offsets and strict range validation. Between ranges, queued
+foreground requests can run. Changing cards, choosing artwork or disconnecting
+cancels remaining reads without resetting the BLE session. Older firmware retains
+its full-file path. First uncached previews still need one complete image transfer;
+range framing adds overhead in exchange for responsiveness. Partial images are
+never installed or cached. Current client transforms/generation checks prevent a
+late download from overwriting newer edits.

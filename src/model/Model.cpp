@@ -164,6 +164,9 @@ bool cardFromJson(JsonObjectConst o, Card &c, String &err) {
     return true;
 }
 void deckToJson(const Deck &d, JsonDocument &doc) {
+    deckToJson(d, doc.to<JsonObject>());
+}
+void deckToJson(const Deck &d, JsonObject doc) {
     doc["version"] = 2;
     doc["revision"] = d.revision;
     auto a = doc["cards"].to<JsonArray>();

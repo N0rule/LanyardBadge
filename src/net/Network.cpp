@@ -96,6 +96,14 @@ void Network::pair() {
     // Only sent over authenticated encrypted GATT, never in diagnostics. A
     // remembered browser uses this instead of repeatedly guessing a short code.
     out["credential"] = settings_.value.pairingKey;
+    // Opt-in snapshot avoids two more BLE exchanges on every browser connection.
+    // Older clients and native tools keep the original lightweight pair response.
+    if (d["includeSnapshot"] == true) {
+        auto snapshot = out["snapshot"].to<JsonObject>();
+        deckToJson(assets_.deck, snapshot["deck"].to<JsonObject>());
+        auto info = statusDocument();
+        snapshot["status"] = info.as<JsonVariantConst>();
+    }
     json(200, out);
     if (paired)
         paired();
@@ -237,7 +245,8 @@ void Network::dispatch(const String &path) {
 }
 JsonDocument Network::statusDocument() const {
     JsonDocument d;
-    d["firmware"] = "2.3.3";
+    d["firmware"] = "2.3.4";
+    d["imageReadMax"] = imageReadMax;
     d["arduino"] = ESP_ARDUINO_VERSION_STR;
     d["heap"] = ESP.getFreeHeap();
     d["minHeap"] = ESP.getMinFreeHeap();
@@ -279,7 +288,7 @@ void Network::status() {
     json(200, d);
 }
 String Network::summary() const {
-    return String("Lanyard Badge\nFirmware 2.3.3") + "\nStorage: " + assets_.used() / 1024 + " / " +
+    return String("Lanyard Badge\nFirmware 2.3.4") + "\nStorage: " + assets_.used() / 1024 + " / " +
            assets_.total() / 1024 + " KiB\nCards: " + assets_.deck.count;
 }
 } // namespace badge

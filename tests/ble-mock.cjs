@@ -1,10 +1,10 @@
 // GATT peripheral simulation, not evidence of a radio connection.
-function installMock() {
+function installMock(config = {}) {
   const base = {
     id: '00000001',
     title: 'First card',
     mode: 'artwork',
-    image: '',
+    image: config.image || '',
     name: '',
     description: '',
     url: '',
@@ -30,6 +30,8 @@ function installMock() {
       rotation: 0,
       defaultCard: base.id,
     },
+    images: config.images || {},
+    requests: [],
     uploads: [],
     failCommit: false,
     password: 'abcdefghijklmnop',
@@ -40,6 +42,8 @@ function installMock() {
     data: [],
     maxPacket: 0,
   });
+  if (config.ranges) mock.status.imageReadMax = 4096;
+  if (config.mtu) mock.mtu = config.mtu;
   let seq = 0,
     request,
     reply,
@@ -94,7 +98,7 @@ function installMock() {
   }
   function deliver() {
     if (replyAt < reply.length) {
-      const n = Math.min(13, reply.length - replyAt);
+      const n = Math.min(Math.max(13, Math.min(500, mock.mtu - 10)), reply.length - replyAt);
       const at = replyAt;
       replyAt += n;
       emit(2, at, reply.subarray(at, replyAt));
@@ -111,12 +115,25 @@ function installMock() {
     const body = request.length
       ? JSON.parse(new TextDecoder().decode(new Uint8Array(mock.data)))
       : {};
+    mock.requests.push(request.path);
+    if (request.path.startsWith('/api/image?id=')) {
+      const query = new URL('https://badge.test' + request.path).searchParams;
+      const bytes = mock.images[query.get('id')];
+      if (!bytes) return answer(404, { error: 'Missing image' });
+      const at = Number(query.get('offset') || 0),
+        n = Number(query.get('length') || bytes.length);
+      return answer(query.has('offset') ? 206 : 200, new Uint8Array(bytes.slice(at, at + n)));
+    }
     if (request.path === '/api/pair') {
       const matches = body.password === mock.password || body.password === mock.shortCode;
       return answer(
         matches ? 200 : 401,
         matches
-          ? { token: 'a'.repeat(64), credential: mock.password }
+          ? {
+              token: 'a'.repeat(64),
+              credential: mock.password,
+              ...(config.snapshot ? { snapshot: { deck: mock.deck, status: mock.status } } : {}),
+            }
           : { error: 'Wrong pairing key' },
       );
     }
@@ -188,6 +205,7 @@ function installMock() {
         } else if (op === 3) {
           if (request.path === '/api/assets') {
             mock.uploads.push(new Uint8Array(mock.data));
+            mock.images.abcdef01 = mock.data.slice();
             return answer(201, { id: 'abcdef01' });
           }
           finish();

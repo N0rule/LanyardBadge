@@ -47,7 +47,7 @@
       }
     return buffer;
   }
-  function decodeBMP(buffer) {
+  function validateBMP(buffer) {
     const v = new DataView(buffer);
     if (
       buffer.byteLength !== BMP_SIZE ||
@@ -61,6 +61,10 @@
       v.getUint32(62, true) !== 31
     )
       throw Error('Invalid badge background');
+    return v;
+  }
+  function decodeBMP(buffer) {
+    const v = validateBMP(buffer);
     const out = new Uint8ClampedArray(W * H * 4);
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
@@ -87,5 +91,12 @@
       if (!t.text || t.text.length > 96 || /[^\x20-\x7e\n]/.test(t.text))
         throw Error('Text elements need 1–96 supported characters');
   }
-  globalThis.BadgeCodec = { cropRect, encodeBMP, decodeBMP, encodePixels, validateCard };
+  globalThis.BadgeCodec = {
+    cropRect,
+    encodeBMP,
+    decodeBMP,
+    encodePixels,
+    validateBMP,
+    validateCard,
+  };
 })();
