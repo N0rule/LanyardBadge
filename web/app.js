@@ -31,6 +31,9 @@
     connected = false,
     busy = false,
     changed = false,
+    committed = null,
+    conflict = false,
+    loadGeneration = 0,
     toastTimer,
     frame = 0,
     drag = null;
@@ -60,7 +63,15 @@
   const card = () => deck.cards[selected];
   function connectionMessage(error) {
     if (error.bluetoothStage === 'pairing')
-      return 'Bluetooth pairing did not finish. Accept the system’s Bluetooth pairing request, then connect again.';
+      return 'Bluetooth security was rejected. Accept the system pairing request if one appears. If this badge was previously paired and still fails, remove its old system Bluetooth pairing once, then reconnect. Your edits are kept.';
+    if (error.bluetoothStage === 'security-read')
+      return 'The encrypted Bluetooth read failed. Keep the badge nearby and retry. If a system pairing request is open, complete it first. Your edits are kept.';
+    if (['service', 'characteristic', 'protocol'].includes(error.bluetoothStage))
+      return 'The badge Bluetooth service is incompatible or unavailable. Check its firmware version and reconnect. Your edits are kept.';
+    if (error.bluetoothStage === 'subscription')
+      return 'Bluetooth notifications could not start. Close other badge tabs and reconnect. Your edits are kept.';
+    if (error.name === 'NotAllowedError' || error.name === 'SecurityError')
+      return 'Bluetooth permission is unavailable. Check browser permissions and that Bluetooth is turned on.';
     if (error.name === 'NetworkError')
       return 'Bluetooth could not establish a connection. Keep the badge nearby, close other connected tabs, and try again. On Linux, also check that the Bluetooth service is running.';
     if (error.name === 'NotFoundError')
@@ -96,7 +107,7 @@
       s.uploadedId = null;
     }
     actions();
-    schedule();
+    draw();
   }
   function actions() {
     $('save-card').disabled = busy || !connected || (!states.has(card().id) && !card().image);
@@ -277,11 +288,14 @@
   function useBadge(deviceId) {
     if (activeBadgeId === deviceId) return;
     stopArtwork();
-    if (activeBadgeId) workspaces.set(activeBadgeId, { deck, selected, states, changed });
+    if (activeBadgeId)
+      workspaces.set(activeBadgeId, { deck, selected, states, changed, committed, conflict });
     const saved = workspaces.get(deviceId);
-    if (saved) ({ deck, selected, states, changed } = saved);
+    if (saved) ({ deck, selected, states, changed, committed, conflict } = saved);
     else {
       states = new Map();
+      committed = null;
+      conflict = false;
       changed = false;
       selected = 0;
       deck = { version: 2, revision: 0, cards: [blank()] };
@@ -348,18 +362,54 @@
     $('storage-meter').value = s.storageTotal ? (s.storageUsed / s.storageTotal) * 100 : 0;
     gallery();
   }
-  async function load({ preserve = false, snapshot } = {}) {
-    const serverDeck = snapshot?.deck || (await transport.getCards()),
+  async function load({ preserve = true, snapshot } = {}) {
+    const generation = ++loadGeneration,
+      session = transport.session,
+      deviceId = activeBadgeId;
+    const serverDeck = structuredClone(snapshot?.deck || (await transport.getCards())),
       s = snapshot?.status || (await transport.getStatus());
+    if (
+      generation !== loadGeneration ||
+      session !== transport.session ||
+      deviceId !== activeBadgeId
+    )
+      throw Error('Previous Bluetooth session closed. Your edits are kept.');
     stopArtwork();
+    const nextCommitted = structuredClone(serverDeck);
     if (preserve && changed) {
-      // Keep all edits. Matching IDs overlay the freshly read collection; new drafts append.
-      const edited = deck.cards,
-        active = card().id;
-      serverDeck.cards = serverDeck.cards.map((c) => edited.find((v) => v.id === c.id) || c);
+      const active = card().id,
+        baseline = new Map((committed?.cards || []).map((c) => [c.id, c])),
+        edited = deck.cards.filter(
+          (c) =>
+            !baseline.has(c.id) ||
+            JSON.stringify(c) !== JSON.stringify(baseline.get(c.id)) ||
+            states.get(c.id)?.dirty,
+        ),
+        dirtyIds = new Set(edited.map((c) => c.id));
+      conflict = conflict || (!!committed && committed.revision !== serverDeck.revision);
+      serverDeck.cards = serverDeck.cards.map((c) =>
+        dirtyIds.has(c.id) ? edited.find((v) => v.id === c.id) : c,
+      );
+      // Retain drafts even when remote additions fill all ten device slots.
+      // Saving remains subject to the device limit; reconnect must never discard.
       for (const c of edited)
-        if (!serverDeck.cards.some((v) => v.id === c.id) && serverDeck.cards.length < 10)
-          serverDeck.cards.push(c);
+        if (!serverDeck.cards.some((v) => v.id === c.id)) serverDeck.cards.push(c);
+      const localOrder = deck.cards.map((c) => c.id),
+        baselineOrder = (committed?.cards || []).map((c) => c.id);
+      if (JSON.stringify(localOrder) !== JSON.stringify(baselineOrder)) {
+        const byId = new Map(serverDeck.cards.map((c) => [c.id, c]));
+        serverDeck.cards = [
+          ...localOrder.filter((id) => byId.has(id)).map((id) => byId.get(id)),
+          ...serverDeck.cards.filter((c) => !localOrder.includes(c.id)),
+        ];
+      }
+      for (const [id, state] of states) {
+        const remote = serverDeck.cards.find((c) => c.id === id);
+        if (!dirtyIds.has(id) && (!remote || (state.assetId && remote.image !== state.assetId))) {
+          state.image?.close?.();
+          states.delete(id);
+        }
+      }
       deck = serverDeck;
       selected = Math.max(
         0,
@@ -367,18 +417,23 @@
       );
     } else {
       deck = serverDeck;
-      selected = Math.min(s.selected || 0, deck.cards.length - 1);
+      selected = Math.max(0, Math.min(s.selected || 0, deck.cards.length - 1));
       for (const state of states.values()) state.image?.close?.();
       states.clear();
       changed = false;
+      conflict = false;
     }
+    committed = nextCommitted;
     if (!deck.cards.length) {
       deck.cards.push(blank());
       selected = 0;
     }
     updateStatus(s);
     edit();
-    // Fill gallery thumbnails from this browser's cache only. No bulk BLE preload.
+    if (conflict)
+      toast(
+        'The badge collection changed elsewhere. Your drafts are kept. Review them before saving.',
+      );
     for (const c of deck.cards) if (c.id !== card().id) loadPreview(c, true);
   }
   const labels = {
@@ -407,14 +462,19 @@
     }
   });
   async function finishPair(password) {
+    const session = transport.session,
+      deviceId = transport.device.id;
     const paired = await transport.pair(password);
     key = paired.credential || password;
     useBadge(transport.device.id);
-    cacheScope = await artworkCache.scope(transport.device.id, key);
+    const scope = await artworkCache.scope(deviceId, key);
+    if (session !== transport.session || deviceId !== transport.device?.id)
+      throw Error('Previous Bluetooth session closed. Your edits are kept.');
+    cacheScope = scope;
     // Set connected only after real pairing and successful metadata reads.
     connected = true;
     try {
-      await load({ preserve: changed, snapshot: paired.snapshot });
+      await load({ snapshot: paired.snapshot });
     } catch (e) {
       connected = false;
       throw e;
@@ -461,7 +521,7 @@
           // while a saved artwork download is active. Reuse its granted device.
           if (
             !transport.device ||
-            (error.bluetoothStage === 'pairing' && transport.device.gatt.connected) ||
+            ['pairing', 'security-read'].includes(error.bluetoothStage) ||
             attempt >= 2 ||
             !['NetworkError', 'UnknownError'].includes(error.name)
           )
@@ -477,7 +537,10 @@
       if (e.deviceResponse && transport.state === 'pairing') {
         key = '';
         if (remembered?.id === transport.device?.id) forgetRemembered();
-        $('pair-error').textContent = connectionMessage(e);
+        $('pair-error').textContent =
+          e.deviceResponse && e.status === 401
+            ? 'Your badge’s access code has changed. Enter the new code shown on the badge to reconnect. Your unsaved artwork is safe.'
+            : connectionMessage(e);
         if (!$('pair-dialog').open) $('pair-dialog').showModal();
       } else toast(connectionMessage(e));
     } finally {
@@ -498,6 +561,8 @@
   };
   $('pair-form').onsubmit = async (e) => {
     e.preventDefault();
+    if (connectionPending) return;
+    connectionPending = true;
     $('pair-error').textContent = '';
     try {
       if (!transport.device?.gatt.connected) await transport.reconnect();
@@ -505,6 +570,8 @@
       $('pair-password').value = '';
     } catch (e) {
       $('pair-error').textContent = connectionMessage(e);
+    } finally {
+      connectionPending = false;
     }
   };
   $('pair-cancel').onclick = () => {
@@ -529,7 +596,7 @@
     !/Android/.test(navigator.userAgent)
   ) {
     $('compatibility').textContent =
-      'On Linux, pair your badge once in the system Bluetooth settings, then connect here. The browser will remember your badge.';
+      'Your system may ask to authorize an encrypted Bluetooth connection the first time. Keep that request open while connecting.';
   }
   $('card-form').onsubmit = (e) => e.preventDefault();
   $('title').oninput = (e) => {
@@ -737,7 +804,7 @@
     }
     if (changed && !confirm('Reloading discards unsaved edits in this tab. Continue?')) return;
     try {
-      await load();
+      await load({ preserve: false });
       toast('Collection loaded.');
     } catch (e) {
       toast(e.message);
@@ -749,6 +816,17 @@
       return;
     }
     try {
+      if (
+        conflict &&
+        !confirm(
+          'The badge changed elsewhere. Save your reviewed collection over its latest version? Your local edits are kept if you cancel.',
+        )
+      )
+        return;
+      if (deck.cards.length > 10)
+        throw Error(
+          'Your drafts are safe. Remove cards until the collection has at most ten before saving.',
+        );
       const c = card(),
         s = states.get(c.id);
       BadgeCodec.validateCard(c);
@@ -785,14 +863,16 @@
       // Keep pending image/transform until the atomic manifest transaction succeeds.
       const saved = await transport.updateCards(candidate);
       deck = saved;
+      committed = structuredClone(saved);
+      conflict = false;
       if (s) {
         s.dirty = false;
         s.uploadedId = null;
       }
-      changed = false;
+      changed = Array.from(states.values()).some((state) => state.dirty);
       updateStatus(await transport.selectCard(c.id));
-      $('save-state').textContent = 'Card uploaded';
-      $('save-state').classList.remove('unsaved');
+      $('save-state').textContent = changed ? 'Unsaved changes' : 'Card uploaded';
+      $('save-state').classList.toggle('unsaved', changed);
       progress('Card uploaded', 100);
       toast('Card uploaded.');
       gallery();
@@ -933,6 +1013,9 @@
     },
     get changed() {
       return changed;
+    },
+    get conflict() {
+      return conflict;
     },
     draw,
     sync,

@@ -3,12 +3,12 @@ const fs = require('node:fs'),
   path = require('node:path');
 const installMock = require('./ble-mock.cjs');
 const root = path.resolve(__dirname, '../web');
-async function setup(page, { mock = true, mobile = false } = {}) {
+async function setup(page, { mock = true, mobile = false, mockOptions = {} } = {}) {
   if (mobile) await page.setViewportSize({ width: 390, height: 844 });
   else await page.setViewportSize({ width: 1360, height: 1000 });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  if (mock) await page.addInitScript(installMock);
+  if (mock) await page.addInitScript(installMock, mockOptions);
   await page.route('https://badge.test/**', (route) => {
     let file = new URL(route.request().url()).pathname.replace(/^\/LanyardBadge\/?/, '');
     if (!file) file = 'index.html';
@@ -237,7 +237,7 @@ test('revoked QR key offers manual re-pair without losing unsaved artwork', asyn
   });
   await page.locator('#connect').click();
   await expect(page.locator('#pair-dialog')).toBeVisible();
-  await expect(page.locator('#pair-error')).toHaveText('Wrong pairing key');
+  await expect(page.locator('#pair-error')).toContainText('Your unsaved artwork is safe.');
   await page.locator('#pair-password').fill('abcd');
   await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
   await expect(page.locator('#connection')).toHaveText('Connected');
@@ -336,7 +336,7 @@ test('a remembered credential invalidated by reflashing offers a new short code'
   });
   await page.reload();
   await expect(page.locator('#pair-dialog')).toBeVisible();
-  await expect(page.locator('#pair-error')).toHaveText('Wrong pairing key');
+  await expect(page.locator('#pair-error')).toContainText('Your unsaved artwork is safe.');
   expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).toBeNull();
   await page.locator('#pair-password').fill('ABCD');
   await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
@@ -604,4 +604,231 @@ test('GIF files cannot silently replace artwork with only their first frame', as
     await expect(page.locator('#save-card')).toBeEnabled();
   }
   expect(errors).toEqual([]);
+});
+
+for (const snapshot of [false, true]) {
+  test(`draft source, transforms and failed authorization survive rotation (snapshot=${snapshot})`, async ({
+    page,
+  }) => {
+    const errors = await setup(page, { mockOptions: { snapshot } });
+    await connect(page);
+    await image(page);
+    await page.locator('#title').fill('Keep my artwork');
+    await page.locator('#fit').selectOption('contain');
+    await page.locator('#fit').dispatchEvent('input');
+    await page.locator('#zoom-value').fill('150');
+    await page.locator('#crop-x').fill('23');
+    await page.locator('#crop-x').dispatchEvent('input');
+    await page.locator('#rotate-right').click();
+    await page.locator('#background').fill('#123456');
+    await page.locator('#background').dispatchEvent('input');
+    const before = await page.evaluate(() => {
+      globalThis.draftSource = BadgeEditor.state.image;
+      const { image, ...transform } = BadgeEditor.state;
+      return { transform, card: structuredClone(BadgeEditor.deck.cards[0]) };
+    });
+    // First prove ordinary reconnect, then failed remembered and manual authentication.
+    await page.evaluate(() => badgeDevice.disconnect());
+    await connect(page);
+    await expect(page.locator('#title')).toHaveValue('Keep my artwork');
+    await page.evaluate(() => {
+      bleMock.password = 'qrstuvwxyz234567';
+      badgeDevice.disconnect();
+    });
+    await page.locator('#connect').click();
+    await expect(page.locator('#pair-error')).toContainText('Your unsaved artwork is safe');
+    await page.locator('#pair-password').fill('zzzz');
+    await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
+    await expect(page.locator('#pair-error')).toHaveText('Wrong pairing key');
+    expect(await page.evaluate(() => BadgeEditor.changed)).toBe(true);
+    await page.locator('#pair-password').fill('abcd');
+    await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
+    await expect(page.locator('#connection')).toHaveText('Connected');
+    const after = await page.evaluate(() => {
+      const { image, ...transform } = BadgeEditor.state;
+      return {
+        transform,
+        card: structuredClone(BadgeEditor.deck.cards[0]),
+        sameSource: image === draftSource,
+        width: image.width,
+        dirty: BadgeEditor.changed,
+      };
+    });
+    expect(after).toEqual({ ...before, sameSource: true, width: 640, dirty: true });
+    await expect(page.locator('#save-state')).toHaveText('Unsaved changes');
+    expect(errors).toEqual([]);
+  });
+}
+
+test('remote deletion and full collection retain drafts and require explicit conflict review', async ({
+  page,
+}) => {
+  await setup(page, { mockOptions: { snapshot: true } });
+  await connect(page);
+  await image(page);
+  await page.locator('#title').fill('Locally edited deleted card');
+  await page.evaluate(() => {
+    const base = bleMock.deck.cards[0];
+    bleMock.deck.cards = Array.from({ length: 10 }, (_, i) => ({
+      ...base,
+      id: (i + 16).toString(16).padStart(8, '0'),
+      title: 'Remote card ' + i,
+    }));
+    bleMock.deck.revision++;
+    badgeDevice.disconnect();
+  });
+  await connect(page);
+  await expect(page.locator('#title')).toHaveValue('Locally edited deleted card');
+  expect(await page.evaluate(() => BadgeEditor.deck.cards.length)).toBe(11);
+  expect(await page.evaluate(() => BadgeEditor.conflict)).toBe(true);
+  await expect(page.locator('#toast')).toContainText('changed elsewhere');
+  page.once('dialog', (d) => d.dismiss());
+  await page.locator('#save-card').click();
+  expect(await page.evaluate(() => BadgeEditor.changed)).toBe(true);
+});
+
+test('explicit reload cancel retains draft and confirmed reload discards it', async ({ page }) => {
+  await setup(page);
+  await connect(page);
+  await image(page);
+  await page.locator('#title').fill('Draft');
+  await page.locator('details.storage summary').click();
+  page.once('dialog', (d) => d.dismiss());
+  await page.locator('#reload').click();
+  await expect(page.locator('#title')).toHaveValue('Draft');
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#reload').click();
+  await expect(page.locator('#title')).toHaveValue('First card');
+  expect(await page.evaluate(() => BadgeEditor.changed)).toBe(false);
+});
+
+test('switching badge identities retains independent source drafts', async ({ page }) => {
+  await setup(page);
+  await connect(page);
+  await image(page);
+  await page.locator('#title').fill('Badge one draft');
+  await page.evaluate(() => {
+    badgeDevice.disconnect();
+    badgeDevice.device.id = 'badge-two';
+  });
+  await connect(page);
+  await image(page);
+  await page.locator('#title').fill('Badge two draft');
+  await page.evaluate(() => {
+    badgeDevice.disconnect();
+    badgeDevice.device.id = 'mock-badge-id';
+  });
+  await connect(page);
+  await expect(page.locator('#title')).toHaveValue('Badge one draft');
+  expect(await page.evaluate(() => BadgeEditor.state.image.width)).toBe(640);
+  await page.evaluate(() => {
+    badgeDevice.disconnect();
+    badgeDevice.device.id = 'badge-two';
+  });
+  await connect(page);
+  await expect(page.locator('#title')).toHaveValue('Badge two draft');
+});
+
+test('late service discovery cannot replace or disconnect a newer session', async ({ page }) => {
+  await setup(page);
+  await connect(page);
+  const result = await page.evaluate(async () => {
+    const device = badgeDevice.device,
+      original = device.gatt.connect;
+    let release, started;
+    const ready = new Promise((r) => {
+      started = r;
+    });
+    device.gatt.connect = async () => ({
+      getPrimaryService: async () => {
+        started();
+        await new Promise((r) => {
+          release = r;
+        });
+        throw new DOMException('Old service discovery failed', 'NetworkError');
+      },
+    });
+    const old = badgeDevice.reconnect().catch((e) => e.staleSession);
+    await ready;
+    device.gatt.connect = original;
+    await badgeDevice.reconnect();
+    const replacement = badgeDevice.session;
+    release();
+    return {
+      stale: await old,
+      sameSession: replacement === badgeDevice.session,
+      connected: device.gatt.connected,
+    };
+  });
+  expect(result).toEqual({ stale: true, sameSession: true, connected: true });
+});
+
+for (const stage of ['service', 'subscription']) {
+  test(`connection diagnostics distinguish ${stage} failure`, async ({ page }) => {
+    await setup(page);
+    await connect(page);
+    await page.evaluate((stage) => {
+      badgeDevice.disconnect();
+      if (stage === 'service') {
+        badgeDevice.device.gatt.connect = async () => ({
+          getPrimaryService: async () => {
+            throw new DOMException('Missing service', 'NotFoundError');
+          },
+        });
+      } else
+        badgeDevice.tx.startNotifications = async () => {
+          throw new DOMException('Subscription rejected', 'NotSupportedError');
+        };
+    }, stage);
+    await page.locator('#connect').click();
+    await expect(page.locator('#connection')).toHaveText('Disconnected');
+    await expect(page.locator('#toast')).toContainText(
+      stage === 'service' ? 'service is incompatible' : 'notifications could not start',
+    );
+  });
+}
+
+test('saving one card retains other dirty source drafts across reconnect', async ({ page }) => {
+  await setup(page, { mockOptions: { mtu: 517, snapshot: true } });
+  await connect(page);
+  await image(page);
+  await page.locator('#title').fill('First source draft');
+  await page.locator('#new-card').click();
+  await image(page);
+  await page.locator('#title').fill('Second uploaded card');
+  await page.locator('#save-card').click();
+  await expect(page.locator('#upload-label')).toHaveText('Card uploaded');
+  expect(await page.evaluate(() => BadgeEditor.changed)).toBe(true);
+  await page.evaluate(() => badgeDevice.disconnect());
+  await connect(page);
+  await page.locator('.gallery-card').first().click();
+  await expect(page.locator('#title')).toHaveValue('First source draft');
+  expect(
+    await page.evaluate(() => ({
+      dirty: BadgeEditor.state.dirty,
+      width: BadgeEditor.state.image.width,
+    })),
+  ).toEqual({ dirty: true, width: 640 });
+});
+
+test('remote unedited metadata refreshes while a matching local draft stays separate', async ({
+  page,
+}) => {
+  await setup(page, { mockOptions: { snapshot: true } });
+  await connect(page);
+  await image(page);
+  await page.locator('#title').fill('Local first card');
+  await page.evaluate(() => {
+    bleMock.deck.cards.push({
+      ...bleMock.deck.cards[0],
+      id: '00000002',
+      title: 'Remote second card',
+    });
+    bleMock.deck.revision++;
+    badgeDevice.disconnect();
+  });
+  await connect(page);
+  await expect(page.locator('#title')).toHaveValue('Local first card');
+  await expect(page.locator('.gallery-card').nth(1)).toContainText('Remote second card');
+  expect(await page.evaluate(() => BadgeEditor.conflict)).toBe(true);
 });

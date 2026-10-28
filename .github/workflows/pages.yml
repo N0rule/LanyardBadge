@@ -2,7 +2,7 @@ name: Build and publish LanyardBadge
 on:
   push:
     branches: [main]
-    paths-ignore: ["docs/**", "README.md"]
+    paths-ignore: ['docs/**', 'README.md']
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,6 +34,13 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
           npm test
+      - name: Preserve browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-${{ github.sha }}
+          path: test-results/browser
+          retention-days: 7
       - name: Build firmware
         run: pio run -e cyd2usb
       - name: Package site and versioned firmware

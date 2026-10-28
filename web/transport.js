@@ -15,7 +15,9 @@
       this.dispatchEvent(new Event('connectionchange'));
     }
     async pair(password) {
+      const session = this.session;
       const r = await this.json('/api/pair', { password, includeSnapshot: true });
+      if (session !== this.session) throw Error('Previous Bluetooth session closed.');
       this.token = r.token;
       return r;
     }
@@ -115,6 +117,11 @@
         );
       }
       try {
+        if (navigator.bluetooth.getAvailability && !(await navigator.bluetooth.getAvailability()))
+          throw Object.assign(
+            Error('Bluetooth is unavailable or turned off. Enable Bluetooth and try again.'),
+            { bluetoothStage: 'availability' },
+          );
         this.change('searching');
         const device = await navigator.bluetooth.requestDevice({
           // Match either field. Name and service may arrive in separate radio
@@ -125,7 +132,7 @@
         this.useDevice(device);
         await this.open();
       } catch (e) {
-        this.disconnect();
+        if (!e.staleSession) this.disconnect();
         throw e;
       }
     }
@@ -133,35 +140,58 @@
       this.sessionAbort.abort(Error('Previous Bluetooth session closed.'));
       this.pending?.reject(Error('Previous Bluetooth session closed.'));
       this.sessionAbort = new AbortController();
-      ++this.session;
+      const session = ++this.session;
+      const stage = async (name, operation) => {
+        try {
+          if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+          const result = await operation();
+          if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+          return result;
+        } catch (error) {
+          error.bluetoothStage ||= name;
+          if (session !== this.session) error.staleSession = true;
+          throw error;
+        }
+      };
       this.tail = Promise.resolve();
       this.writeTail = Promise.resolve();
       this.change('connecting');
-      const server = await this.device.gatt.connect();
-      const service = await server.getPrimaryService(SERVICE);
-      this.rx = await service.getCharacteristic(RX);
-      this.tx = await service.getCharacteristic(TX);
+      const server = await stage('gatt', () => this.device.gatt.connect());
+      const service = await stage('service', () => server.getPrimaryService(SERVICE));
+      this.rx = await stage('characteristic', () => service.getCharacteristic(RX));
+      this.tx = await stage('characteristic', () => service.getCharacteristic(TX));
       const resubscribing = !!this.notifySource;
       if (this.notifySource && this.notifyListener)
         this.notifySource.removeEventListener('characteristicvaluechanged', this.notifyListener);
       this.notifySource = this.tx;
-      this.notifyListener = (e) => this.receive(e.target.value);
+      this.notifyListener = (e) => {
+        if (session === this.session) this.receive(e.target.value);
+      };
       this.tx.addEventListener('characteristicvaluechanged', this.notifyListener);
       // The encrypted read completes link security before writing the
       // notification subscription. Fast reconnects can otherwise race bonding.
       this.change('pairing');
-      const deadline = Date.now() + 45000;
+      let securityRetries = 0;
       let hello;
       for (;;) {
         try {
-          hello = await this.tx.readValue();
+          hello = await stage('security-read', () => this.tx.readValue());
           break;
         } catch (error) {
           const securityPending =
             ['NetworkError', 'UnknownError'].includes(error.name) ||
             /GATT.*(unknown|authenticat|encrypt|authoriz)/i.test(error.message);
-          if (!securityPending || !this.device.gatt.connected || Date.now() >= deadline) {
-            error.bluetoothStage = 'pairing';
+          if (
+            !securityPending ||
+            !this.device.gatt.connected ||
+            session !== this.session ||
+            securityRetries++ >= 2
+          ) {
+            error.bluetoothStage = !this.device.gatt.connected
+              ? 'gatt'
+              : /authenticat|encrypt|authoriz|pair|bond/i.test(error.message)
+                ? 'pairing'
+                : 'security-read';
             throw error;
           }
           // BlueZ can reject an encrypted read while its desktop confirmation
@@ -170,17 +200,21 @@
         }
       }
       if (hello.byteLength !== 3 || ![1, 2].includes(hello.getUint8(0)))
-        throw Error('This badge needs a compatible firmware update.');
+        throw Object.assign(Error('This badge needs a compatible firmware update.'), {
+          bluetoothStage: 'protocol',
+        });
       this.packetBytes = Math.min(512, Math.max(20, hello.getUint16(1, true) - 3));
       if (resubscribing) {
         // BlueZ/Chromium can retain a "notifying" flag after a peripheral
         // disconnect even though its CCC subscription was lost. Toggle it off
         // before starting the replacement subscription.
         try {
-          await this.tx.stopNotifications();
-        } catch {}
+          await stage('subscription', () => this.tx.stopNotifications());
+        } catch (error) {
+          if (error.staleSession) throw error;
+        }
       }
-      await this.tx.startNotifications();
+      await stage('subscription', () => this.tx.startNotifications());
       if (hello.getUint8(0) >= 2) {
         this.sequence = crypto.getRandomValues(new Uint16Array(1))[0];
         this.response = null;
@@ -194,6 +228,7 @@
           }
         }
       }
+      await stage('session', async () => {});
       this.change('pairing');
     }
     async reconnect() {
@@ -203,7 +238,7 @@
       try {
         await this.open();
       } catch (e) {
-        this.disconnect();
+        if (!e.staleSession) this.disconnect();
         throw e;
       }
     }
@@ -249,7 +284,11 @@
             if (signal.aborted) return abort();
             signal.addEventListener('abort', abort, { once: true });
             Promise.resolve()
-              .then(() => rx.writeValueWithResponse(packet))
+              .then(() => {
+                signal.throwIfAborted();
+                if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+                return rx.writeValueWithResponse(packet);
+              })
               .then(
                 (value) => finish(resolve, value),
                 (error) => finish(reject, error),

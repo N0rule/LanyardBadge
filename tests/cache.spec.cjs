@@ -167,3 +167,43 @@ test('client-prepared upload seeds the cache without reading the new artwork bac
     await page.evaluate(() => bleMock.requests.filter((p) => p.startsWith('/api/image')).length),
   ).toBe(1);
 });
+
+test('a delayed cache response never replaces newer source artwork', async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => {
+    const original = BadgeArtworkCache.ArtworkCache.prototype.get;
+    BadgeArtworkCache.ArtworkCache.prototype.get = async function (...args) {
+      globalThis.cacheReadStarted = true;
+      await new Promise((r) => {
+        globalThis.releaseCacheRead = r;
+      });
+      return original.apply(this, args);
+    };
+  });
+  await page.locator('details.storage summary').click();
+  await page.locator('#reload').click();
+  await page.waitForFunction(() => globalThis.cacheReadStarted);
+  const source = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 640;
+    c.height = 480;
+    c.getContext('2d').fillRect(0, 0, 640, 480);
+    return c.toDataURL().split(',')[1];
+  });
+  await page
+    .locator('#image-file')
+    .setInputFiles({
+      name: 'new.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(source, 'base64'),
+    });
+  await expect(page.locator('#crop-controls')).toBeEnabled();
+  await page.evaluate(() => {
+    globalThis.newSource = BadgeEditor.state.image;
+    releaseCacheRead();
+  });
+  await page.waitForFunction(
+    () => BadgeEditor.state?.image === newSource && BadgeEditor.state.image.width === 640,
+  );
+  expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
+});

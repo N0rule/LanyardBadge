@@ -4,7 +4,7 @@ module.exports = defineConfig({
   testMatch: ['editor.spec.cjs', 'gif.spec.cjs', 'cache.spec.cjs'],
   fullyParallel: true,
   timeout: 30000,
-  use: { headless: true },
+  use: { headless: true, trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   reporter: 'list',
   outputDir: '../test-results/browser',
 });
