@@ -132,5 +132,13 @@ Before claiming Windows reliability, test current Edge and Chrome on Windows 11:
 7. Disable Bluetooth, cancel chooser, deny consent, disconnect during discovery,
    and fail subscription; verify each recovery message and preservation of edits.
 
-Remaining gates: exact CI title-reset cause, Windows/Android radio validation,
-and public deployment verification. Do not infer any of those from Linux tests.
+Remaining gates: exact CI title-reset cause and Windows/Android radio validation.
+Do not infer those from Linux tests.
+
+Deployment verification: code commit `61e5b21b82255f4c3c7feb067590b3dcf35e7333`
+passed [Actions build and Pages deployment](https://github.com/N0rule/LanyardBadge/actions/runs/40676476821).
+The canonical site served revisioned script URLs `61e5b21b8225`; downloaded app.js
+and transport.js matched the committed files byte for byte. The public update
+manifest identified `2.3.4-61e5b21b8225`, with only firmware.bin at 0x10000.
+The existing installer erase choice remains: leave Erase device unchecked.
+A Windows tester is available; their results are pending.
