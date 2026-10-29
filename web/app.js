@@ -85,10 +85,11 @@
       saved &&
       typeof saved.id === 'string' &&
       typeof saved.name === 'string' &&
-      (saved.native === true || /^[a-z2-9]{16}$/.test(saved.credential))
+      saved.protocol === 4
     )
-      remembered = { id: saved.id, name: saved.name, native: true };
+      remembered = { id: saved.id, name: saved.name, protocol: 4 };
     if (remembered) localStorage.setItem(rememberedKey, JSON.stringify(remembered));
+    else localStorage.removeItem(rememberedKey);
   } catch {}
   const fragment = new URLSearchParams(location.hash.slice(1));
   key = ''; // Discard obsolete application credentials from old QR links.
@@ -98,28 +99,17 @@
   const windows = /Windows/.test(navigator.userAgent);
   let windowsPairingHelp = false;
   function connectionMessage(error) {
-    if (windows && (error.securityOperation || error.bluetoothStage === 'pairing'))
-      return 'Encrypted Bluetooth pairing did not complete. With current firmware, enter the six-digit number shown on the badge into the browser’s Bluetooth prompt. If the badge shows no number, update its firmware using USB. Your edits are kept.';
-    if (error.bluetoothStage === 'pairing')
-      return 'Bluetooth security was rejected. Start pairing again and enter the fresh six-digit number shown on the badge. Your edits are kept.';
-    if (error.bluetoothStage === 'security-read')
-      return 'The encrypted Bluetooth read failed. Keep the badge nearby and retry. If a system pairing request is open, complete it first. Your edits are kept.';
-    if (['service', 'characteristic', 'protocol'].includes(error.bluetoothStage))
-      return 'The badge Bluetooth service is incompatible or unavailable. Check its firmware version and reconnect. Your edits are kept.';
+    if (error.bluetoothStage === 'service')
+      return 'The badge service is incompatible or unavailable. Update its firmware and reconnect.';
     if (error.bluetoothStage === 'subscription')
-      return 'Bluetooth notifications could not start. Close other badge tabs and reconnect. Your edits are kept.';
-    if (error.name === 'NotAllowedError' || error.name === 'SecurityError')
-      return 'Bluetooth permission is unavailable. Check browser permissions and that Bluetooth is turned on.';
-    if (error.name === 'NetworkError')
-      return (
-        'Bluetooth could not establish a connection. Keep the badge nearby, close other connected tabs, and try again.' +
-        (/Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)
-          ? ' On Linux, also check that the Bluetooth service is running.'
-          : '')
-      );
+      return 'Bluetooth notifications could not start. Close other badge tabs and reconnect.';
+    if (error.name === 'NetworkError' && error.bluetoothStage !== 'protocol')
+      return 'Bluetooth could not establish a connection. Keep the badge nearby, close other connected tabs, and try again.';
+    if (error.bluetoothStage === 'protocol')
+      return 'Update your badge firmware over USB for four-letter-code connections.';
     if (error.name === 'NotFoundError')
-      return 'No badge selected. Keep the badge powered on and scan again.';
-    return error.message;
+      return 'No badge selected. Keep the badge powered on and try again.';
+    return error.message || 'Could not connect. Reconnect and enter the code shown on the badge.';
   }
   function showRemembered() {
     $('remembered-badge').hidden = !remembered;
@@ -538,6 +528,7 @@
         ? 'Connected via USB'
         : labels[transport.state] || transport.state;
     if (transport.state === 'disconnected') {
+      $('pair-dialog').close();
       stopArtwork();
       connected = false;
       $('connect').textContent = 'Reconnect badge';
@@ -559,11 +550,11 @@
     transport = globalThis.badgeDevice = next;
     transport.addEventListener('connectionchange', connectionChanged);
   }
-  async function finishPair() {
+  async function finishPair(code) {
     const session = transport.session,
       controller = transport.sessionAbort,
       deviceId = transport.device.id;
-    const paired = await transport.pair();
+    const paired = await transport.pair(code);
     key = transport.kind === 'usb' ? 'usb' : '';
     const identity = paired.snapshot?.status?.deviceId || deviceId;
     // A firmware update can add stable identity to a previously browser-keyed
@@ -596,7 +587,7 @@
       remembered = {
         id: transport.device.id,
         name: transport.device.name || 'your badge',
-        native: true,
+        protocol: 4,
       };
       try {
         localStorage.setItem(rememberedKey, JSON.stringify(remembered));
@@ -643,7 +634,10 @@
         }
       }
       if (!key && remembered?.id === transport.device?.id) key = '';
-      await finishPair();
+      $('pair-code').value = '';
+      $('pair-error').textContent = '';
+      $('pair-dialog').showModal();
+      $('pair-code').focus();
     } catch (e) {
       const message = connectionMessage(e);
       if (windows && (e.securityOperation || e.bluetoothStage === 'pairing')) {
@@ -656,6 +650,25 @@
       $('connect').disabled = false;
     }
   }
+  $('pair-form').onsubmit = async (event) => {
+    event.preventDefault();
+    $('pair-submit').disabled = true;
+    try {
+      await finishPair($('pair-code').value.trim().toUpperCase());
+      $('pair-dialog').close();
+    } catch (error) {
+      $('pair-error').textContent = error.message;
+    } finally {
+      $('pair-code').value = '';
+      $('pair-submit').disabled = false;
+    }
+  };
+  const cancelCode = () => {
+    $('pair-dialog').close();
+    transport.disconnect();
+  };
+  $('pair-cancel').onclick = cancelCode;
+  $('pair-dialog').addEventListener('cancel', cancelCode);
   async function connectUSB(port) {
     if (connectionPending || busy) return;
     // Request permission immediately within the click gesture.
@@ -725,11 +738,11 @@
     !/Android/.test(navigator.userAgent)
   ) {
     $('compatibility').textContent =
-      'For first-time Bluetooth pairing, enter the six-digit number shown on the badge into your browser’s Bluetooth prompt. The badge shows the PIN automatically when you connect.';
+      'Connect here, then enter the four-letter code shown on the badge. Windows pairing is not needed.';
   }
   if (windows)
     $('compatibility').textContent =
-      'Connect here. For first-time Bluetooth pairing, enter the six-digit number shown on the badge into the browser’s Bluetooth prompt.';
+      'Connect here, then enter the four-letter code shown on the badge. Windows pairing is not needed.';
   const defaultCompatibility = $('compatibility').textContent;
   $('card-form').onsubmit = (e) => e.preventDefault();
   $('title').oninput = (e) => {

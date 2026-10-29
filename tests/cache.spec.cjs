@@ -10,6 +10,7 @@ for (let i = 0; i < rgba.length; i += 4) {
 }
 const bytes = Array.from(new Uint8Array(BadgeCodec.encodeBMP(rgba)));
 async function setup(page, extra = {}) {
+  await require('./code-helper.cjs')(page);
   await page.addInitScript(installMock, {
     image: '12345678',
     images: { 12345678: bytes },

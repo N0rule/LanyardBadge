@@ -187,11 +187,12 @@ void setup() {
         d["bluetoothSecurityEvents"] = bluetooth.securityEvents();
         d["bluetoothEncrypted"] = bluetooth.encrypted();
         d["bluetoothAuthenticated"] = bluetooth.authenticatedLink();
-        d["bluetoothProtocol"] = 3;
-        d["bluetoothSecurityProfile"] = "sc-passkey-v1";
+        d["bluetoothProtocol"] = 4;
+        d["bluetoothSecurityProfile"] = "session-code-v1";
         d["bluetoothBonds"] = bluetooth.bonds();
         d["bluetoothAdvertising"] = bluetooth.advertising();
         d["bluetoothName"] = bluetooth.name();
+        d["bluetoothIdentity"] = bluetooth.identity();
         d["bluetoothInitialIntervalMs"] = bluetooth.initialIntervalMs();
         d["bluetoothIntervalMs"] = bluetooth.intervalMs();
         ui.diagnostics(d);

@@ -1,5 +1,6 @@
 #include "Bluetooth.h"
 #include "../core/Console.h"
+#include <Preferences.h>
 #include <algorithm>
 namespace badge {
 static_assert(MYNEWT_VAL(BLE_SM_SC_ONLY) == 1, "BLE must require Secure Connections");
@@ -10,7 +11,7 @@ void put32(uint8_t *p, uint32_t v) {
 }
 } // namespace
 bool Bluetooth::begin() {
-    trusted = true;
+    trusted = false;
     queue_ = xQueueCreate(4, sizeof(Packet));
     if (!queue_)
         return false;
@@ -18,13 +19,36 @@ bool Bluetooth::begin() {
     snprintf(suffix, sizeof(suffix), "%04X", unsigned(ESP.getEfuseMac() >> 32) & 0xffff);
     name_ =
         settings_.deviceName == "LanyardBadge" ? String("Badge-") + suffix : settings_.deviceName;
-    NimBLEDevice::init(name_.c_str());
+    if (!NimBLEDevice::init(name_.c_str()))
+        return false;
+    // One-time identity migration avoids old Windows bonds. This public radio
+    // identity survives factory resets; code sessions never create new bonds.
+    Preferences identity;
+    if (!identity.begin("badge-radio", false))
+        return false;
+    uint8_t address[6];
+    bool privateIdentity = identity.getBytesLength("bleAddress") == sizeof(address);
+    if (privateIdentity) {
+        if (identity.getBytes("bleAddress", address, sizeof(address)) != sizeof(address))
+            return false;
+    } else {
+        esp_fill_random(address, sizeof(address));
+        address[5] |= 0xc0;                      // Bluetooth random-static address, little-endian.
+        address[0] = (address[0] & 0xfc) | 0x01; // Random part is neither all-zero nor all-one.
+        if (identity.putBytes("bleAddress", address, sizeof(address)) != sizeof(address))
+            return false;
+        privateIdentity = true;
+    }
+    identity.end();
+    if (privateIdentity &&
+        (!NimBLEDevice::setOwnAddr(address) || !NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM)))
+        return false;
+    if (!NimBLEDevice::deleteAllBonds())
+        return false;
     NimBLEDevice::setMTU(517);
-    // Authenticated LE Secure Connections; physical passkey entry establishes the link.
-    // Native authenticated bonds authorize editors; new enrollment requires the badge-displayed
-    // native PIN.
-    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
-    NimBLEDevice::setSecurityAuth(true, true, true);
+    // Unpaired GATT: a short-lived on-screen code authorizes each editor session.
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+    NimBLEDevice::setSecurityAuth(false, false, false);
     // Keep the host's actual security failure code after disconnection. The
     // server authentication callback exposes encryption state but not status.
     // This passive listener must never change GAP handling or expose key data.
@@ -43,13 +67,9 @@ bool Bluetooth::begin() {
     server_->setCallbacks(this, false);
     server_->advertiseOnDisconnect(true);
     auto *service = server_->createService(bleService);
-    auto *rx = service->createCharacteristic(
-        bleReceive,
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN, 512);
+    auto *rx = service->createCharacteristic(bleReceive, NIMBLE_PROPERTY::WRITE, 512);
     tx_ = service->createCharacteristic(bleTransmit,
-                                        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC |
-                                            NIMBLE_PROPERTY::READ_AUTHEN | NIMBLE_PROPERTY::NOTIFY,
-                                        512);
+                                        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 512);
     rx->setCallbacks(this);
     tx_->setCallbacks(this);
     server_->start();
@@ -107,7 +127,6 @@ void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
     mtu_ = info.getMTU();
     initialInterval_ = info.getConnInterval();
     nativePasskey_ = UINT32_MAX;
-    upgradeNeeded_ = upgradeAttempted_ = false;
     connected_ = true;
     ++generation_;
     // Let the central establish security when it accesses encrypted GATT.
@@ -122,41 +141,29 @@ void Bluetooth::onDisconnect(NimBLEServer *, NimBLEConnInfo &, int reason) {
 float Bluetooth::intervalMs() const {
     return connected_ ? server_->getPeerInfoByHandle(handle_).getConnInterval() * 1.25f : 0;
 }
-void Bluetooth::onAuthenticationComplete(NimBLEConnInfo &info) {
-    nativePasskey_ = UINT32_MAX;
-    if (!info.isEncrypted()) {
-        server_->disconnect(info.getConnHandle());
+void Bluetooth::sessionStarted() {
+    if (code_.blocked(millis()) || code_.display(millis()) != UINT32_MAX)
         return;
-    }
-    if (!info.isAuthenticated() || info.getSecKeySize() != 16) {
-        // An old Just Works bond may encrypt successfully but cannot access the
-        // authenticated characteristics. Request a standard security upgrade
-        // once, outside this callback; never serve application data at that level.
-        if (upgradeAttempted_)
-            server_->disconnect(info.getConnHandle());
-        else
-            upgradeNeeded_ = true;
-        return;
-    }
-    // USB powered, no Wi-Fi coexistence: request 7.5–15 ms events for artwork.
-    // The central can reject this request; transfer framing remains unchanged.
-    server_->updateConnParams(info.getConnHandle(), 6, 12, 0, 400);
-}
-uint32_t Bluetooth::onPassKeyDisplay() {
-    // Rejection sampling avoids bias; Bluetooth is active, enabling the ESP32's
-    // hardware entropy source. Never persist or print this temporary passkey.
-    uint32_t value;
-    constexpr uint32_t limit = UINT32_MAX - (UINT32_MAX % 1000000U);
+    uint32_t random;
+    const uint32_t limit = UINT32_MAX - UINT32_MAX % EditorCode::combinations;
     do {
-        value = esp_random();
-    } while (value >= limit);
-    const uint32_t passkey = value % 1000000U;
-    nativeStarted_ = millis();
-    nativePasskey_ = passkey;
-    return passkey;
+        random = esp_random();
+    } while (random >= limit);
+    code_.begin(random, millis());
+}
+int Bluetooth::pairSession(const String &body, String &out) {
+    JsonDocument request;
+    bool malformed = bool(deserializeJson(request, body));
+    int result = code_.check(malformed ? "" : (request["password"] | ""), millis());
+    if (result == 200)
+        return api_.trustedSession(out);
+    out = result == 429   ? "{\"error\":\"Too many attempts. Wait 30 seconds, then reconnect.\"}"
+          : result == 403 ? "{\"error\":\"Code expired. Reconnect for a new code.\"}"
+                          : "{\"error\":\"Incorrect code. Read the four letters on the badge.\"}";
+    return result;
 }
 void Bluetooth::cancelNativePairing() {
-    nativePasskey_ = UINT32_MAX;
+    code_.close();
     if (connected_ && server_)
         server_->disconnect(handle_);
 }
@@ -164,12 +171,11 @@ void Bluetooth::onMTUChange(uint16_t mtu, NimBLEConnInfo &) {
     mtu_ = mtu;
 }
 void Bluetooth::onRead(NimBLECharacteristic *c, NimBLEConnInfo &info) {
-    uint8_t hello[3] = {3, uint8_t(info.getMTU()), uint8_t(info.getMTU() >> 8)};
+    uint8_t hello[3] = {4, uint8_t(info.getMTU()), uint8_t(info.getMTU() >> 8)};
     c->setValue(hello, sizeof(hello));
 }
 void Bluetooth::onWrite(NimBLECharacteristic *c, NimBLEConnInfo &info) {
-    if (!connected_ || info.getConnHandle() != handle_ || !info.isEncrypted() ||
-        !info.isAuthenticated() || info.getSecKeySize() != 16)
+    if (!connected_ || info.getConnHandle() != handle_)
         return;
     const auto value = c->getValue();
     if (value.size() < 7 || value.size() > 512) {
@@ -196,17 +202,15 @@ bool Bluetooth::notify(uint8_t op, uint32_t value, const uint8_t *data, size_t n
 void Bluetooth::tick() {
     if (!queue_)
         return;
-    if (nativePasskey_ < 1000000U && millis() - nativeStarted_ > 60000U)
-        cancelNativePairing();
-    if (connected_ && upgradeNeeded_.exchange(false)) {
-        upgradeAttempted_ = true;
-        if (!NimBLEDevice::startSecurity(handle_))
-            server_->disconnect(handle_);
-    }
     uint32_t gen = generation_;
     if (gen != seenGeneration_) {
         reset();
         seenGeneration_ = gen;
+        code_.close();
+        if (connected_ && !code_.blocked(millis())) {
+            sessionStarted();
+            server_->updateConnParams(handle_, 6, 12, 0, 400);
+        }
     }
     if (overflow_.exchange(false)) {
         server_->disconnect(handle_);
@@ -222,6 +226,10 @@ void Bluetooth::tick() {
             if (!advertising() && !NimBLEDevice::getAdvertising()->start())
                 Console::println("BLE: advertising retry failed");
         }
+        return;
+    }
+    if (!authenticated_ && code_.display(millis()) == UINT32_MAX && !responding_ && !receiving_) {
+        server_->disconnect(handle_);
         return;
     }
     Packet p;

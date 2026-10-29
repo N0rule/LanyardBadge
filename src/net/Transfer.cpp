@@ -59,6 +59,7 @@ void Transfer::packet(const uint8_t *p, size_t n) {
         reset();
         api_.claim(this);
         api_.revokeSession();
+        sessionStarted();
         sequence_ = seq;
         if (!notify(0, 0))
             failed_ = true;
@@ -113,7 +114,7 @@ void Transfer::packet(const uint8_t *p, size_t n) {
         length_ = d["length"];
         bool pairing = path_ == "/api/pair" && method_ == "POST";
         if (!pairing && (!authenticated_ || !api_.touchSession(token_))) {
-            fail(401, "Scan your badge QR to pair again");
+            fail(401, "Connect and enter the code shown on the badge");
             return;
         }
         bool animation = path_ == "/api/animations";
@@ -208,8 +209,8 @@ void Transfer::packet(const uint8_t *p, size_t n) {
             answer(read.ranged ? 206 : 200, "");
         } else {
             String out;
-            int code = trusted && path_ == "/api/pair"
-                           ? api_.trustedSession(out)
+            int code = path_ == "/api/pair"
+                           ? pairSession(request_, out)
                            : api_.localRequest(method_, path_, request_, token_, out);
             if (path_ == "/api/pair")
                 authenticated_ = code == 200;

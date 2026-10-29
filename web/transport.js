@@ -362,42 +362,9 @@
         if (session === this.session) this.receive(e.target.value);
       };
       this.tx.addEventListener('characteristicvaluechanged', this.notifyListener);
-      // The encrypted read completes link security before writing the
-      // notification subscription. Fast reconnects can otherwise race bonding.
-      this.change('pairing');
-      const securityDeadline = Date.now() + 45000;
-      let hello;
-      for (;;) {
-        try {
-          hello = await stage('security-read', () => this.tx.readValue());
-          break;
-        } catch (error) {
-          // Retain the failed operation even if link loss invalidated the session.
-          error.securityOperation = true;
-          const securityPending =
-            ['NetworkError', 'UnknownError'].includes(error.name) ||
-            /GATT.*(unknown|authenticat|encrypt|authoriz)/i.test(error.message);
-          if (
-            !securityPending ||
-            !this.device.gatt.connected ||
-            session !== this.session ||
-            /denied|rejected|cancel/i.test(error.message) ||
-            Date.now() >= securityDeadline
-          ) {
-            error.bluetoothStage = !this.device.gatt.connected
-              ? 'gatt'
-              : /authenticat|encrypt|authoriz|pair|bond/i.test(error.message)
-                ? 'pairing'
-                : 'security-read';
-            throw error;
-          }
-          // BlueZ can reject an encrypted read while its desktop confirmation
-          // is still open. Keep the connection and allow time to approve it.
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-      }
-      if (hello.byteLength !== 3 || hello.getUint8(0) !== 3)
-        throw Object.assign(Error('This badge needs a compatible firmware update.'), {
+      const hello = await stage('protocol', () => this.tx.readValue());
+      if (hello.byteLength !== 3 || hello.getUint8(0) !== 4)
+        throw Object.assign(Error('Update badge firmware for four-letter-code connections.'), {
           bluetoothStage: 'protocol',
         });
       this.protocol = hello.getUint8(0);

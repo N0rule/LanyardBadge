@@ -1,4 +1,5 @@
 #pragma once
+#include "../core/EditorCode.h"
 #include "Transfer.h"
 #include <NimBLEDevice.h>
 #include <atomic>
@@ -19,7 +20,9 @@ class Bluetooth : public Transfer,
     NimBLEServer *server_ = nullptr;
     NimBLECharacteristic *tx_ = nullptr;
     std::atomic<bool> connected_{false}, overflow_{false};
-    std::atomic<bool> upgradeNeeded_{false}, upgradeAttempted_{false};
+    EditorCode code_;
+    void sessionStarted() override;
+    int pairSession(const String &, String &) override;
     std::atomic<uint32_t> generation_{0};
     uint32_t seenGeneration_ = 0;
     std::atomic<uint16_t> mtu_{23}, handle_{0}, initialInterval_{0};
@@ -31,8 +34,6 @@ class Bluetooth : public Transfer,
     void onConnect(NimBLEServer *, NimBLEConnInfo &) override;
     void onDisconnect(NimBLEServer *, NimBLEConnInfo &, int) override;
     void onMTUChange(uint16_t, NimBLEConnInfo &) override;
-    void onAuthenticationComplete(NimBLEConnInfo &) override;
-    uint32_t onPassKeyDisplay() override;
     void onWrite(NimBLECharacteristic *, NimBLEConnInfo &) override;
     void onRead(NimBLECharacteristic *, NimBLEConnInfo &) override;
 
@@ -48,7 +49,7 @@ class Bluetooth : public Transfer,
     int disconnectReason() const { return disconnectReason_; }
     int securityStatus() const { return securityStatus_; }
     uint32_t securityEvents() const { return securityEvents_; }
-    uint32_t nativePasskey() const { return nativePasskey_; }
+    uint32_t nativePasskey() const { return code_.display(millis()); }
     void cancelNativePairing();
     bool authenticatedLink() const {
         return connected_ && server_->getPeerInfoByHandle(handle_).isAuthenticated();
@@ -60,6 +61,7 @@ class Bluetooth : public Transfer,
     bool advertising() const { return server_ && NimBLEDevice::getAdvertising()->isAdvertising(); }
     float initialIntervalMs() const { return initialInterval_ * 1.25f; }
     float intervalMs() const;
+    String identity() const { return String(NimBLEDevice::getAddress().toString().c_str()); }
     String name() const { return name_; }
     String pairingUrl() const;
 };

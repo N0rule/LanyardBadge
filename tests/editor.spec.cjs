@@ -3,7 +3,11 @@ const fs = require('node:fs'),
   path = require('node:path');
 const installMock = require('./ble-mock.cjs');
 const root = path.resolve(__dirname, '../web');
-async function setup(page, { mock = true, mobile = false, mockOptions = {} } = {}) {
+async function setup(
+  page,
+  { mock = true, mobile = false, mockOptions = {}, manualCode = false } = {},
+) {
+  if (!manualCode) await require('./code-helper.cjs')(page);
   if (mobile) await page.setViewportSize({ width: 390, height: 844 });
   else await page.setViewportSize({ width: 1360, height: 1000 });
   const errors = [];
@@ -319,25 +323,6 @@ test('disconnected landing has only connect and install, then opens a neutral em
   expect(errors).toEqual([]);
 });
 
-test('encrypted reads wait for native pairing and device theme is saved separately', async ({
-  page,
-}) => {
-  const errors = await setup(page);
-  await page.evaluate(() => {
-    bleMock.securityFailures = 2;
-  });
-  await connect(page);
-  await page.locator('#device-open').click();
-  await expect(page.locator('#badge-theme')).toHaveValue('dark');
-  await page.locator('#badge-theme').selectOption('light');
-  await page.getByText('Save device settings', { exact: true }).click();
-  await expect(page.locator('#toast')).toHaveText('Device settings saved.');
-  expect(await page.evaluate(() => bleMock.status.darkMode)).toBe(false);
-  expect(await page.evaluate(() => localStorage.getItem('ble.mock.choosers'))).toBe('1');
-  await expect(page.locator('#system-info')).not.toContainText('heap');
-  expect(errors).toEqual([]);
-});
-
 test('reconnect waits for the previous page GATT connection to finish closing', async ({
   page,
 }) => {
@@ -483,19 +468,6 @@ test('duplicate native notification events retain a single complete response', a
   const cards = await page.evaluate(() => badgeDevice.getCards());
   expect(cards.cards[0].title).toBe('First card');
   await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
-  expect(errors).toEqual([]);
-});
-
-test('a stale connected handle lost during encrypted read retries the same granted badge', async ({
-  page,
-}) => {
-  const errors = await setup(page);
-  await page.evaluate(() => {
-    bleMock.disconnectedReads = 1;
-  });
-  await connect(page);
-  expect(await page.evaluate(() => localStorage.getItem('ble.mock.choosers'))).toBe('1');
-  await expect(page.locator('#studio')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -816,89 +788,6 @@ test('a delayed disconnect event from a closed link does not invalidate a connec
   expect(result).toEqual({ unchanged: true, state: 'pairing' });
 });
 
-for (const securityFailure of [false, true]) {
-  test(`Windows recovery distinguishes encrypted pairing from GATT failure (security=${securityFailure})`, async ({
-    page,
-  }) => {
-    await page.addInitScript(() =>
-      Object.defineProperty(navigator, 'userAgent', {
-        value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/148.0.0.0',
-        configurable: true,
-      }),
-    );
-    await setup(page);
-    const defaultHelp = await page.locator('#compatibility').textContent();
-    await page.evaluate((security) => {
-      if (security) bleMock.disconnectedReads = 3;
-      else bleMock.busyConnects = 3;
-    }, securityFailure);
-    await page.locator('#connect').click();
-    await expect(page.locator('#connection')).toHaveText('Disconnected');
-    if (securityFailure) {
-      await expect(page.locator('#compatibility')).toContainText('six-digit number');
-      await expect(page.locator('#compatibility')).toContainText('USB');
-      await expect(page.locator('#compatibility')).toContainText('Your edits are kept');
-    } else {
-      await expect(page.locator('#toast')).toContainText('could not establish a connection');
-      await expect(page.locator('#toast')).not.toContainText('pair');
-      await expect(page.locator('#compatibility')).toHaveText(defaultHelp);
-    }
-    await expect(page.locator('#toast')).not.toContainText('On Linux');
-    await connect(page);
-    await expect(page.locator('#compatibility')).toHaveText(defaultHelp);
-  });
-}
-
-test('browser pairing waits for native PIN entry and reconnect reuses its bond', async ({
-  page,
-}) => {
-  await setup(page, { mockOptions: { passkey: true } });
-  await page.locator('#connect').click();
-  await expect(page.locator('#connection')).toHaveText('Pairing…');
-  await page.waitForFunction(() => bleMock.passkeyRequested);
-  expect(await page.evaluate(() => bleMock.requests)).toEqual([]);
-  await expect(page.locator('#studio')).toBeHidden();
-  await page.evaluate(() => bleMock.completeNativePairing(true));
-  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
-  await image(page);
-  await page.locator('#title').fill('Browser paired draft');
-  await page.evaluate(() => badgeDevice.disconnect());
-  await connect(page);
-  await expect(page.locator('#title')).toHaveValue('Browser paired draft');
-  expect(await page.evaluate(() => bleMock.nativePairingCount)).toBe(1);
-  expect(await page.evaluate(() => badgeDevice.protocol)).toBe(3);
-});
-
-test('rejected native PIN keeps the source draft and permits a fresh browser pairing attempt', async ({
-  page,
-}) => {
-  await setup(page, { mockOptions: { passkey: true } });
-  await page.locator('#connect').click();
-  await page.waitForFunction(() => bleMock.passkeyRequested);
-  await page.evaluate(() => bleMock.completeNativePairing(true));
-  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
-  await image(page);
-  await page.locator('#title').fill('Keep the original source');
-  await page.evaluate(() => {
-    globalThis.sourceBeforePin = BadgeEditor.state.image;
-    badgeDevice.disconnect();
-    bleMock.nativeBonded = false;
-  });
-  await page.locator('#connect').click();
-  await page.waitForFunction(() => bleMock.passkeyRequested);
-  await page.evaluate(() => bleMock.completeNativePairing(false));
-  await expect(page.locator('#connection')).toHaveText('Disconnected');
-  await expect(page.locator('#title')).toHaveValue('Keep the original source');
-  expect(
-    await page.evaluate(() => BadgeEditor.changed && BadgeEditor.state.image === sourceBeforePin),
-  ).toBe(true);
-  await page.locator('#connect').click();
-  await page.waitForFunction(() => bleMock.passkeyRequested);
-  await page.evaluate(() => bleMock.completeNativePairing(true));
-  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
-  await expect(page.locator('#title')).toHaveValue('Keep the original source');
-});
-
 test('loading status text stays centered on the physical badge for every percentage', async ({
   page,
 }) => {
@@ -955,29 +844,10 @@ test('firmware identity upgrade keeps the existing browser-keyed draft', async (
   expect(errors).toEqual([]);
 });
 
-test('native bond authorization skips the application code and stores no ownership secret', async ({
-  page,
-}) => {
-  const errors = await setup(page, { mockOptions: { protocol: 3, snapshot: true } });
-  await connect(page);
-  await expect(page.locator('#pair-dialog')).not.toBeVisible();
-  expect(
-    await page.evaluate(() => JSON.parse(localStorage.getItem('lanyardbadge.connection'))),
-  ).toMatchObject({ native: true });
-  expect(
-    await page.evaluate(
-      () => JSON.parse(localStorage.getItem('lanyardbadge.connection')).credential,
-    ),
-  ).toBeUndefined();
-  await page.reload();
-  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
-  expect(errors).toEqual([]);
-});
-
 test('device name and reset request use shared API with deliberate confirmation', async ({
   page,
 }) => {
-  const errors = await setup(page, { mockOptions: { protocol: 3, snapshot: true } });
+  const errors = await setup(page, { mockOptions: { protocol: 4, snapshot: true } });
   await connect(page);
   await page.evaluate(() =>
     Object.assign(bleMock.status, { deviceName: 'LanyardBadge', factoryReset: true }),
@@ -999,4 +869,35 @@ test('device name and reset request use shared API with deliberate confirmation'
   expect(await page.evaluate(() => bleMock.deck.cards.length)).toBe(1);
   await expect(page.locator('#reset-status')).not.toContainText('BOOT');
   expect(errors).toEqual([]);
+});
+
+test('four-letter code gates editing, retries mistakes and is never remembered', async ({
+  page,
+}) => {
+  await setup(page, { manualCode: true });
+  await page.locator('#connect').click();
+  await expect(page.locator('#pair-dialog')).toBeVisible();
+  await expect(page.locator('#studio')).toBeHidden();
+  await page.locator('#pair-code').fill('ZZZZ');
+  await page.locator('#pair-submit').click();
+  await expect(page.locator('#pair-error')).toContainText('Incorrect code');
+  await expect(page.locator('#studio')).toBeHidden();
+  await page.locator('#pair-code').fill('abcd');
+  await page.locator('#pair-submit').click();
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('ABCD');
+  await page.locator('#disconnect-top').click();
+  await page.locator('#connect').click();
+  await expect(page.locator('#pair-dialog')).toBeVisible();
+  await expect(page.locator('#pair-code')).toHaveValue('');
+  await page.locator('#pair-cancel').click();
+  await expect(page.locator('#connection')).toHaveText('Disconnected');
+});
+test('old native-pairing firmware requires an update rather than a Windows prompt', async ({
+  page,
+}) => {
+  await setup(page, { manualCode: true, mockOptions: { protocol: 3 } });
+  await page.locator('#connect').click();
+  await expect(page.locator('#toast')).toContainText('Update your badge firmware');
+  await expect(page.locator('#pair-dialog')).not.toBeVisible();
 });

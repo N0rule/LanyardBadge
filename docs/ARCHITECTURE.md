@@ -56,12 +56,12 @@ share this engine and the transport-neutral `Network` API. Exclusive ownership
 prevents simultaneous transports from corrupting a transaction. Disconnect aborts
 temporary writes and releases the session. Partial transfers expire after 15 seconds.
 
-BLE protocol 3 requires native authenticated LE Secure Connections and a 16-byte
-key. PCs initiate pairing without a badge menu; new peers must enter the
-badge-displayed PIN, while bonded peers reconnect without an application password. A fresh six-digit PIN is displayed
-only on the badge for the native pairing prompt. It is not exposed in status,
-URLs or logs. Forget paired editors deletes bonds.
-NimBLE callbacks enqueue bounded packets; storage and UI work stays on the loop.
+BLE protocol 4 uses unpaired characteristics with a temporary four-letter
+application code. Codes expire after two minutes, authorize one connection only,
+and are rate-limited across reconnects. No native pairing or encryption is requested.
+The one-time migration to a persisted random-static address avoids older Windows
+bonds. The public address lives in badge-radio and survives factory reset; it is
+not an authorization credential. Stable chip IDs still identify browser workspaces.
 
 USB uses 115200-baud CH340 UART, CRC-protected bounded SLIP frames, a versioned
 handshake and short API sessions. Physical access plus browser serial permission

@@ -17,6 +17,10 @@ class Transfer {
     uint16_t packetBytes = 20;
     bool trusted = false;
     virtual bool notify(uint8_t, uint32_t, const uint8_t * = nullptr, size_t = 0) = 0;
+    virtual int pairSession(const String &, String &out) {
+        return trusted ? api_.trustedSession(out) : 403;
+    }
+    virtual void sessionStarted() {}
     void reset();
     void packet(const uint8_t *, size_t);
     void answer(int, const String &);

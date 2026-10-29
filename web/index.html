@@ -251,6 +251,27 @@
         <button id="connection-cancel">Cancel</button>
       </div>
     </dialog>
+    <dialog id="pair-dialog">
+      <h2>Enter the badge code</h2>
+      <p>Four letters appear automatically on the badge. No Windows pairing is needed.</p>
+      <form id="pair-form">
+        <label
+          >Code<input
+            id="pair-code"
+            minlength="4"
+            maxlength="4"
+            pattern="[A-Za-z]{4}"
+            autocomplete="off"
+            autocapitalize="characters"
+            required
+        /></label>
+        <p id="pair-error" role="status"></p>
+        <div class="dialog-actions">
+          <button class="primary" id="pair-submit">Connect</button
+          ><button type="button" id="pair-cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="device-dialog">
       <div class="section-head">
         <h2>Device settings</h2>

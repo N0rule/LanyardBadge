@@ -1,6 +1,7 @@
 #include "Ui.h"
 #include "../core/CachedReader.h"
 #include "../core/Console.h"
+#include "../core/EditorCode.h"
 #include "Board.h"
 #include <algorithm>
 #include <esp_heap_caps.h>
@@ -511,20 +512,19 @@ void Ui::render() {
         return;
     }
     if (page_ == Page::BluetoothPairing) {
-        auto *title = label(root, "Bluetooth pairing", 16, 24, 208, 32, font(20), ink());
+        auto *title = label(root, "Editor code", 16, 24, 208, 32, font(20), ink());
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-        auto *hint = label(root, "Enter this six-digit number in your computer's Bluetooth prompt.",
-                           20, 76, 200, 58, font(14), ink());
+        auto *hint = label(root, "Enter these four letters on the website to connect.", 20, 76, 200,
+                           58, font(14), ink());
         lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-        char number[7];
-        snprintf(number, sizeof(number), "%06lu", (unsigned long)nativePasskey_);
+        char number[5];
+        EditorCode::letters(nativePasskey_, number);
         auto *pin = label(root, number, 16, 146, 208, 40, font(28), ink());
         lv_obj_set_style_text_align(pin, LV_TEXT_ALIGN_CENTER, 0);
-        auto *note =
-            label(root, "Only enter it if you started this connection. It expires after pairing.",
-                  20, 208, 200, 48, font(14), ink());
+        auto *note = label(root, "Valid for two minutes. Only share it with your own editor.", 20,
+                           208, 200, 48, font(14), ink());
         lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
-        auto *cancel = button(root, "Cancel pairing", int(Command::CancelBluetoothPairing));
+        auto *cancel = button(root, "Cancel connection", int(Command::CancelBluetoothPairing));
         lv_obj_set_pos(cancel, 16, 270);
         return;
     }
@@ -552,7 +552,7 @@ void Ui::render() {
         lv_obj_set_style_text_align(key, LV_TEXT_ALIGN_CENTER, 0);
         return;
     }
-    header(page_ == Page::RePair         ? "Forget editors"
+    header(page_ == Page::RePair         ? "Disconnect editor"
            : page_ == Page::FactoryReset ? "Factory reset"
            : page_ == Page::Menu         ? "Your badge"
            : page_ == Page::Gallery      ? "Gallery"
@@ -592,17 +592,17 @@ void Ui::render() {
     }
     if (page_ == Page::RePair) {
         label(list,
-              "Forget Bluetooth editors? Remove the old pairing in your system settings before "
-              "pairing again. Artwork stays saved.",
+              "Disconnect the current Bluetooth editor? A new code will be required before "
+              "editing again. Artwork stays saved.",
               0, 0, 208, 90, font(14), ink());
-        button(list, "Forget editors", int(Command::RevokePairing));
+        button(list, "Disconnect editor", int(Command::RevokePairing));
         return;
     }
     if (page_ == Page::Settings) {
         label(list, settings_.deviceName.c_str(), 0, 0, 208, 32, font(20), ink());
         button(list, settings_.value.darkMode ? "Theme: dark" : "Theme: light",
                int(Command::Theme));
-        button(list, "Forget paired editors", -1 - int(Page::RePair));
+        button(list, "Disconnect editor", -1 - int(Page::RePair));
         button(list, "Factory reset", -1 - int(Page::FactoryReset));
         return;
     }

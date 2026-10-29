@@ -4,6 +4,7 @@ const fs = require('node:fs'),
 const bleMock = require('./ble-mock.cjs'),
   serialMock = require('./serial-mock.cjs');
 async function setup(page, config = {}) {
+  await require('./code-helper.cjs')(page);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(bleMock, { serial: true, mtu: 515, snapshot: true });

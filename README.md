@@ -24,14 +24,19 @@ For USB editing, choose **Connect badge → Connect via USB** and grant the brow
 permission to use the USB serial port. Previously authorized ports can reconnect
 automatically. The badge identifies itself before the editor opens.
 
-For Bluetooth, open the website on your computer and choose Bluetooth. The badge
-shows its six-digit PIN automatically when native pairing begins. Enter it in the
-operating-system prompt. No badge menu or hardware button is needed.
-Previously bonded editors reconnect using their native authenticated bond.
+For Bluetooth, open the website on your computer and choose Bluetooth. Four
+letters appear automatically on the badge. Enter them on the website; do not
+pair through Windows Settings. The code lasts two minutes and authorizes only
+that connection. Five incorrect attempts cause a 30-second lockout. USB needs no code.
 
-The 3.0 editor requires Bluetooth protocol 3. Update older firmware through USB.
-Existing authenticated bonds are retained. Obsolete browser ownership credentials
-are discarded, and in-tab artwork drafts survive reconnection and identity migration.
+The editor requires firmware 3.1.0 / Bluetooth protocol 4. Update over USB first.
+During this upgrade the badge adopts a new radio identity to avoid stale Windows
+bonds. Choose it from the website once; old Windows entries can be left alone.
+Future resets retain this public identity and create no OS bonds. Browser permission
+to access a device is separate from OS pairing. No access code is saved by the site.
+
+This is basic access control, not encrypted transport. Artwork and codes can be
+observed by a nearby active Bluetooth monitor. This is an intentional product tradeoff.
 
 ## Make a card
 
@@ -54,9 +59,8 @@ Device names accept 1–24 printable ASCII characters, without leading or traili
 spaces. Names persist across firmware updates. The badge's settings menu shows
 the name directly; change it from the website.
 
-To revoke Bluetooth access, use **Settings → Forget paired editors** on the
-badge. Remove its old pairing in your operating system before enrolling again.
-This keeps artwork and settings.
+Use **Settings → Disconnect editor** to end a Bluetooth editing session.
+Reconnecting requires a new code. Artwork and settings stay saved.
 
 **Factory reset** is available in the badge settings and in the website's
 **Device settings → Advanced** section. It deletes artwork, settings, names and

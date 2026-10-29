@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real BLE protocol validation using native authenticated bonding."""
+"""Real BLE protocol validation using unpaired Bluetooth with a badge-displayed code."""
 
 import argparse, asyncio, json, struct, time, copy
 from pathlib import Path
@@ -55,8 +55,8 @@ class Protocol:
         print("BLE request", path, flush=True)
         if not self.initialized:
             hello = await self.client.read_gatt_char(TX)
-            assert hello[0] == 3, "Update badge firmware to protocol 3"
-            if hello[0] == 3:
+            assert hello[0] == 4, "Update badge firmware to protocol 4"
+            if hello[0] == 4:
                 await self.ack(6, 0)
             self.initialized = True
         self.seq = (self.seq + 1) & 65535
@@ -113,14 +113,14 @@ async def main():
         "deviceName": device.name,
         "checks": [],
     }
-    async with BleakClient(device, timeout=15, pair=True) as client:
+    async with BleakClient(device, timeout=15, pair=False) as client:
         print("GATT connected", flush=True)
         proto = Protocol(client)
         hello = await client.read_gatt_char(TX)
-        assert hello[0] == 3
+        assert hello[0] == 4
         await client.start_notify(TX, proto.notified)
         pair = await proto.request(
-            "/api/pair", {}
+            "/api/pair", {"password": __import__("getpass").getpass("Four-letter badge code: ")}
         )
         proto.token = pair["token"]
         report["checks"].append("Native authenticated bond authorized session")
@@ -188,13 +188,13 @@ async def main():
         await proto.ack(1, 0)
         await proto.ack(2, 0, original[:128], 128)
         await client.disconnect()
-    async with BleakClient(device, timeout=15, pair=True) as client:
+    async with BleakClient(device, timeout=15, pair=False) as client:
         proto = Protocol(client)
         hello = await client.read_gatt_char(TX)
-        assert hello[0] == 3
+        assert hello[0] == 4
         await client.start_notify(TX, proto.notified)
         pair = await proto.request(
-            "/api/pair", {}
+            "/api/pair", {"password": __import__("getpass").getpass("Four-letter badge code: ")}
         )
         proto.token = pair["token"]
         recovered = await proto.request("/api/status")

@@ -3,16 +3,14 @@
 Service `f40d1000-6f15-4d56-b6d4-17c92e648a10`.
 Receive/write `f40d1001-6f15-4d56-b6d4-17c92e648a10`.
 Transmit/read/notify `f40d1002-6f15-4d56-b6d4-17c92e648a10`.
-BLE protocol 3 requires authenticated LE Secure Connections with a 16-byte key.
-The protected read returns protocol byte 3 and a little-endian uint16 MTU.
-Subscribe after the protected read, then send operation 6 to start a clean session.
-In firmware 3.0.1, the PC may initiate connections without opening a badge menu.
-New peers must still complete native authenticated PIN pairing.
-A fresh six-digit PIN appears on the badge for the native OS/browser pairing
-prompt. Existing authenticated bonds authorize later sessions. There is no
-four-letter application password, ownership key, or secret QR URL.
-Forget paired editors on the badge removes bonds; remove the stale host pairing
-before enrolling again. Firmware 2.x requires an update for the current editor.
+BLE protocol 4 exposes unpaired READ/WRITE/NOTIFY characteristics. The read
+returns version byte 4 and the little-endian MTU. Subscribe, then send operation 6.
+A fresh four-letter code appears on the badge for each connection. POST /api/pair
+with `{password:"ABCD"}` creates a session only if the case-insensitive code is
+valid. Codes expire after two minutes and are single-use. Five wrong attempts
+cause a 30-second lockout that survives reconnecting. Codes are not returned in
+any API response. Disconnect releases authorization. No OS pairing or bonding
+is required; application payloads are not encrypted.
 
 USB uses the same operations inside [serial framing](USB-PROTOCOL.md).
 Physical access and browser serial permission authorize USB sessions. Only one
@@ -50,7 +48,7 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 
 | Operation                    | Body / response                                                                                      |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------- |
-| POST `/api/pair`             | `{}` → `{token,snapshot}`                       |
+| POST `/api/pair`             | `{password: four-letter-code}` → `{token,snapshot}` (USB needs no password)                       |
 | GET `/api/status`            | Diagnostics, storage, settings, current selection, sleep/BLE state                                   |
 | GET `/api/cards`             | `{version:2,revision,cards:[...]}`                                                                   |
 | POST `/api/cards`            | Complete deck with matching revision → committed deck                                                |
@@ -82,19 +80,13 @@ settings, artwork and bonds. A reset request alone does not erase anything.
 BLE firmware updates are not implemented. Firmware installation uses USB manifests,
 not this service.
 
-### Link-security diagnostics
+### Link diagnostics
 
-Status responses additionally expose `bluetoothSecurityStatus` (the last NimBLE
-GAP encryption-change result) and `bluetoothSecurityEvents` (its count since boot).
-They survive a disconnect in RAM, not a reboot. Status 0 with count 0 means no
-security result has been observed. With an observed event, status 0 indicates
-successful security state change; also inspect `bluetoothEncrypted` and
-`bluetoothAuthenticated` for the live link. `bluetoothProtocol` is 3 and
-`bluetoothSecurityProfile` is `sc-passkey-v1` on current firmware. Native error bases follow the pinned NimBLE host: HCI 0x200, local SMP 0x400,
-peer SMP 0x500. For example, 0x50C is a peer SMP Numeric Comparison Failed rejection.
-These diagnostic values contain no keys, tokens, PINs, or peer addresses. Older
-firmware can omit both fields; older clients may ignore them.
-
+`bluetoothProtocol` is 4 and `bluetoothSecurityProfile` is `session-code-v1`.
+`bluetoothEncrypted` and `bluetoothAuthenticated` describe native link security,
+not the application session; both are normally false in this release.
+`bluetoothIdentity` exposes only the public radio address. Codes and tokens are
+never included in status. `bluetoothBonds` is zero after migration.
 
 ### Animated artwork capability
 
@@ -104,4 +96,4 @@ these fields; clients must gate GIF upload on the explicit capability. Card imag
 IDs and metadata version 2 are unchanged. `/api/image` can return BMP or LBA1 data;
 range validation uses the actual immutable file size. See [LBA1](GIF.md) for the
 validated file format, timing semantics and bounds. Animation uploads retain the
-same encrypted/authenticated characteristic and application-token requirements.
+same application-token requirements.

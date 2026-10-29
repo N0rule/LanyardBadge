@@ -13,6 +13,8 @@ c++ -std=c++17 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -g tests/d
 "$binary"
 c++ -std=c++17 -O2 -Wall -Wextra -Werror -I tests/reset-stubs tests/factory_reset_test.cpp -o "$binary"
 "$binary"
+c++ -std=c++17 -Wall -Wextra -Werror tests/editor_code_test.cpp -o "$binary"
+"$binary"
 node tests/serial.test.cjs
 node tests/codec.test.cjs
 node tests/gif.test.cjs

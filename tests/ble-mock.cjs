@@ -44,7 +44,7 @@ function installMock(config = {}) {
     shortCode: 'ABCD',
     abandonedResponse: !!localStorage.getItem('ble.mock.abandoned'),
     dropDiscovery: config.dropDiscovery || 0,
-    protocol: config.protocol || 3,
+    protocol: config.protocol || 4,
     mtu: 23,
     header: [],
     data: [],
@@ -148,19 +148,16 @@ function installMock(config = {}) {
     }
     if (request.path === '/api/pair') {
       const matches =
-        mock.protocol === 3 ||
-        config.serial ||
-        body.password === mock.password ||
-        body.password === mock.shortCode;
+        config.serial || body.password === mock.password || body.password === mock.shortCode;
       return answer(
         matches ? 200 : 401,
         matches
           ? {
               token: 'a'.repeat(64),
-              ...(mock.protocol === 3 ? {} : { credential: mock.password }),
+
               ...(config.snapshot ? { snapshot: { deck: mock.deck, status: mock.status } } : {}),
             }
-          : { error: 'Wrong pairing key' },
+          : { error: 'Incorrect code' },
       );
     }
     if (request.path === '/api/cards' && request.method === 'GET') return answer(200, mock.deck);
