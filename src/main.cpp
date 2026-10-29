@@ -1,9 +1,13 @@
 #include "Board.h"
+#include "Version.h"
+#include "core/Console.h"
 #include "hardware/Display.h"
 #include "hardware/Touch.h"
 #include "net/Bluetooth.h"
 #include "net/Network.h"
+#include "net/SerialTransport.h"
 #include "storage/Assets.h"
+#include "storage/FactoryReset.h"
 #include "storage/Settings.h"
 #include "ui/Ui.h"
 #include <Arduino.h>
@@ -17,9 +21,9 @@ Assets assets;
 Ui ui(display, touch, assets, settings);
 badge::Network network(settings, assets);
 Bluetooth bluetooth(network, assets, settings);
+SerialTransport usb(network, assets);
 uint32_t switchedAt = 0, saveAt = 0, restartAt = 0;
 bool pendingSave = false, pendingClose = false;
-String serialLine;
 uint32_t loopMaxUs = 0;
 void scheduleSave() {
     pendingSave = true;
@@ -27,7 +31,7 @@ void scheduleSave() {
 }
 void show(unsigned index, bool persist = true) {
     if (!assets.deck.count) {
-        ui.page(Page::Pairing);
+        ui.page(assets.legacyCollection() ? Page::Badge : Page::Pairing);
         return;
     }
     ui.select(index);
@@ -82,6 +86,7 @@ void act(Command c, int value) {
         ui.nativePairing(UINT32_MAX);
         return;
     case Command::Setup:
+        bluetooth.openEnrollment();
         ui.page(Page::Pairing);
         return;
     case Command::Timeout: {
@@ -94,12 +99,8 @@ void act(Command c, int value) {
         break;
     }
     case Command::RevokePairing:
-        if (settings.revokePairing()) {
-            // Revoke editor credentials, not the OS encryption bond. Deleting
-            // one side of a bond breaks subsequent browser reconnection.
-            bluetooth.revoke();
+        if (bluetooth.forgetEditors())
             ui.page(Page::Pairing);
-        }
         return;
     case Command::Theme:
         s.darkMode = !s.darkMode;
@@ -119,10 +120,10 @@ void act(Command c, int value) {
         return;
     case Command::Storage:
         if (assets.provision()) {
-            Serial.println("Blank LittleFS initialized; no existing files overwritten");
+            Console::println("Blank LittleFS initialized; no existing files overwritten");
             ui.invalidate();
         } else
-            Serial.println("Storage setup failed or filesystem already mounted");
+            Console::println("Storage setup failed or filesystem already mounted");
         return;
     }
     scheduleSave();
@@ -131,78 +132,27 @@ void act(Command c, int value) {
 void printStatus() {
     auto d = network.statusDocument();
     serializeJson(d, Serial);
-    Serial.println();
+    Console::println();
 }
-void serialCommand(const String &s) {
-    if (s == "status")
-        printStatus();
-    else if (s == "next")
-        act(Command::Next, 0);
-    else if (s == "prev")
-        act(Command::Previous, 0);
-    else if (s == "menu")
-        ui.page(Page::Menu);
-    else if (s == "badge")
-        ui.page(Page::Badge);
-    else if (s == "rotate")
-        act(Command::Rotate, 0);
-    else if (s == "calibrate")
-        ui.page(Page::Calibration);
-    else if (s == "sleep")
-        ui.sleep();
-    else if (s == "wake")
-        ui.wake();
-#if defined(BADGE_DIAGNOSTICS) && BADGE_DIAGNOSTICS
-    else if (s == "bench-menu")
-        ui.benchmarkMenu();
-    else if (s == "bench-lvgl")
-        ui.benchmark(false);
-    else if (s == "bench-stream")
-        ui.benchmark(true);
-    else if (s == "render-lvgl")
-        ui.benchmarkMode(false);
-    else if (s == "render-stream")
-        ui.benchmarkMode(true);
-#endif
-    else if (s == "onboarding")
-        ui.page(Page::Pairing);
-    else if (s == "setup")
-        act(Command::Setup, 0);
-    else if (s == "close")
-        act(Command::CloseSetup, 0);
-    else if (s == "storage-init")
-        act(Command::Storage, 0);
-    else if (s == "restart")
-        act(Command::Restart, 0);
-    else if (s == "brightness")
-        act(Command::Brightness, 0);
-    else if (s == "revoke")
-        act(Command::RevokePairing, 0);
-    else if (s == "theme")
-        act(Command::Theme, 0);
-    else if (s == "back")
-        act(Command::Back, 0);
-    else
-        Serial.println("Commands: status next prev menu badge rotate calibrate setup close "
-                       "storage-init brightness theme back revoke restart sleep wake");
-}
+
 } // namespace
 void setup() {
     Serial.begin(115200);
+    resumeFactoryReset();
     delay(100);
-    serialLine.reserve(96);
     pinMode(board::boot, INPUT_PULLUP);
-    Serial.printf("\nLanyardBadge 2.3.4 | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
-                  ESP.getChipModel(), ESP.getChipRevision(), unsigned(ESP.getFlashChipSize()),
-                  unsigned(ESP.getPsramSize()), int(esp_reset_reason()));
+    Console::printf("\nLanyardBadge " BADGE_VERSION
+                    " | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
+                    ESP.getChipModel(), ESP.getChipRevision(), unsigned(ESP.getFlashChipSize()),
+                    unsigned(ESP.getPsramSize()), int(esp_reset_reason()));
     if (!settings.begin())
-        Serial.println("WARNING: NVS settings unavailable");
+        Console::println("WARNING: NVS settings unavailable");
     if (!display.begin(settings.value.rotation, settings.value.brightness))
-        Serial.println("ERROR: Display or backlight initialization failed");
-    Serial.printf("Display: %dx%d, portrait=%u\n", int(display.width()), int(display.height()),
-                  settings.value.rotation);
+        Console::println("ERROR: Display or backlight initialization failed");
+    Console::printf("Display: %dx%d, portrait=%u\n", int(display.width()), int(display.height()),
+                    settings.value.rotation);
     if (!touch.begin())
-        Serial.println("WARNING: Touch initialization failed");
+        Console::println("WARNING: Touch initialization failed");
     if (!assets.begin())
         assets.provision();
     bool hasArtwork = false;
@@ -218,9 +168,9 @@ void setup() {
 
     ui.pairingUrl = [] { return bluetooth.pairingUrl(); };
     if (!bluetooth.begin())
-        Serial.println("ERROR: Bluetooth initialization failed");
+        Console::println("ERROR: Bluetooth initialization failed");
     if (!ui.begin()) {
-        Serial.println("FATAL: LVGL initialization failed");
+        Console::println("FATAL: LVGL initialization failed");
         while (true)
             delay(1000);
     }
@@ -231,7 +181,6 @@ void setup() {
         ui.page(Page::Badge);
     };
     network.showBadge = [] { ui.page(Page::Badge); };
-    network.pairingCodeAllowed = [] { return ui.currentPage() == Page::Pairing; };
     network.paired = [] { ui.paired(); };
     network.deviceStatus = [](JsonDocument &d) {
         d["screen"] = ui.currentPage() == Page::Badge         ? "badge"
@@ -249,7 +198,7 @@ void setup() {
         d["bluetoothSecurityEvents"] = bluetooth.securityEvents();
         d["bluetoothEncrypted"] = bluetooth.encrypted();
         d["bluetoothAuthenticated"] = bluetooth.authenticatedLink();
-        d["bluetoothProtocol"] = 2;
+        d["bluetoothProtocol"] = 3;
         d["bluetoothSecurityProfile"] = "sc-passkey-v1";
         d["bluetoothBonds"] = bluetooth.bonds();
         d["bluetoothAdvertising"] = bluetooth.advertising();
@@ -274,7 +223,7 @@ void setup() {
                 provisioned = true;
         settings.value.provisioned = provisioned;
         if (!settings.save())
-            Serial.println(
+            Console::println(
                 "WARNING: Provisioning state save failed; recovered from manifest at boot");
         bool defaultExists = false;
         for (unsigned i = 0; i < assets.deck.count; ++i)
@@ -297,15 +246,20 @@ void setup() {
         show(next);
         ui.invalidate();
     };
-    network.calibrateTouch = [] { ui.page(Page::Calibration); };
+    network.requestReset = [] {
+        ui.wake();
+        ui.page(Page::FactoryReset);
+    };
     network.settingsChanged = [] {
+        bluetooth.refreshName();
         ui.wake();
         ui.orientation();
         switchedAt = millis();
     };
 
     switchedAt = millis();
-    Serial.println("Ready. Hold screen for menu. Hold BOOT 2s for editor, 6s for touch recovery.");
+    Console::println(
+        "Ready. Hold screen for menu. Hold BOOT 2s for editor, 6s for touch recovery.");
     printStatus();
 }
 void loop() {
@@ -315,19 +269,31 @@ void loop() {
     ui.pump();
     bluetooth.tick();
 
-    if (Serial.available()) {
-        char c = Serial.read();
-        if (c == '\n' || c == '\r') {
-            if (serialLine.length())
-                serialCommand(serialLine);
-            serialLine = "";
-        } else if (serialLine.length() < 96)
-            serialLine += c;
-    }
+    usb.tick();
     // BOOT is input-only here: no peripheral is driven on an unverified expansion pin.
     static uint32_t pressedAt = 0;
     static bool latched = false;
-    if (digitalRead(board::boot) == LOW) {
+    static bool resetReleased = false;
+    static uint32_t resetHeld = 0, resetOpened = 0;
+    if (ui.currentPage() == Page::FactoryReset) {
+        if (!resetOpened)
+            resetOpened = millis();
+        if (millis() - resetOpened > 60000)
+            ui.page(Page::Settings);
+        if (digitalRead(board::boot) == HIGH) {
+            resetReleased = true;
+            resetHeld = 0;
+        } else if (resetReleased) {
+            if (!resetHeld)
+                resetHeld = millis();
+            if (millis() - resetHeld >= 3000 && requestFactoryReset())
+                ESP.restart();
+        }
+        pressedAt = 0;
+        latched = false;
+    } else if (digitalRead(board::boot) == LOW) {
+        resetReleased = false;
+        resetHeld = resetOpened = 0;
         if (!pressedAt)
             pressedAt = millis();
         if (latched && millis() - pressedAt >= 6000 && ui.currentPage() != Page::Calibration) {
@@ -340,6 +306,8 @@ void loop() {
             act(Command::Setup, 0);
         }
     } else {
+        resetReleased = false;
+        resetHeld = resetOpened = 0;
         pressedAt = 0;
         latched = false;
     }
@@ -350,7 +318,7 @@ void loop() {
     }
     if (pendingSave && millis() - saveAt >= 1500) {
         if (!settings.save())
-            Serial.println("WARNING: Could not persist settings");
+            Console::println("WARNING: Could not persist settings");
         pendingSave = false;
     }
     static bool wasVisible = true;

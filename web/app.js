@@ -2,8 +2,8 @@
   'use strict';
   const assetVersion = new URL(document.currentScript.src).searchParams.get('v') || '';
   const $ = (id) => document.getElementById(id),
-    { BluetoothTransport } = BadgeTransport;
-  const transport = (globalThis.badgeDevice = new BluetoothTransport());
+    { BluetoothTransport, SerialTransport } = BadgeTransport;
+  let transport = (globalThis.badgeDevice = new BluetoothTransport());
   let states = new Map();
   const artworkCache = new BadgeArtworkCache.ArtworkCache(),
     imageLoads = new Map(),
@@ -85,12 +85,13 @@
       saved &&
       typeof saved.id === 'string' &&
       typeof saved.name === 'string' &&
-      /^[a-z2-9]{16}$/.test(saved.credential)
+      (saved.native === true || /^[a-z2-9]{16}$/.test(saved.credential))
     )
-      remembered = saved;
+      remembered = { id: saved.id, name: saved.name, native: true };
+    if (remembered) localStorage.setItem(rememberedKey, JSON.stringify(remembered));
   } catch {}
   const fragment = new URLSearchParams(location.hash.slice(1));
-  key = fragment.get('key') || fragment.get('code') || '';
+  key = ''; // Discard obsolete application credentials from old QR links.
   intendedName = fragment.get('badge') || '';
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   const card = () => deck.cards[selected];
@@ -166,6 +167,7 @@
   }
   function lock(value) {
     busy = value;
+    $('cancel-transfer').hidden = !value || !connected;
     $('card-form').inert = value;
     for (const id of [
       'save-card',
@@ -199,6 +201,10 @@
       : card().image
         ? 'Loading card preview…'
         : 'Choose artwork to begin.';
+    $('preview-placeholder').hidden = !!s || !card().image;
+    $('preview-placeholder-label').textContent = 'Loading artwork';
+    $('preview-progress').hidden = false;
+    $('preview-progress').removeAttribute('value');
     canvas.classList.toggle('has-artwork', !!s);
     syncAnimation();
     actions();
@@ -286,8 +292,10 @@
           total: Number(status.artworkSizes?.[asset]) || 153666,
           signal,
           onProgress: (percent) => {
-            if (!signal.aborted && c.id === card().id)
+            if (!signal.aborted && c.id === card().id) {
               $('preview-help').textContent = `Loading card… ${percent}%`;
+              $('preview-progress').value = percent;
+            }
           },
         });
         await artworkCache.put(scope, asset, bytes);
@@ -352,6 +360,8 @@
     imageFor(c, cachedOnly).catch((error) => {
       if (error.name !== 'AbortError' && connected && c.id === card().id) {
         $('preview-help').textContent = 'Preview unavailable. Choose artwork to replace it.';
+        $('preview-placeholder-label').textContent = 'Preview unavailable';
+        $('preview-progress').hidden = true;
         toast(error.message);
       }
     });
@@ -429,6 +439,10 @@
   }
   function updateStatus(s) {
     status = s;
+    if (s.legacyCollection)
+      toast(
+        'Legacy collection preserved. Use Device settings → Factory reset to start an artwork collection; confirm on the badge.',
+      );
     $('storage-label').textContent =
       `${Math.round(s.storageUsed / 1024)} KB of ${Math.round(s.storageTotal / 1024)} KB used`;
     $('storage-meter').value = s.storageTotal ? (s.storageUsed / s.storageTotal) * 100 : 0;
@@ -513,13 +527,16 @@
     searching: 'Searching…',
     connecting: 'Connecting…',
     pairing: 'Pairing…',
-    connected: 'Connected',
+    connected: 'Connected via Bluetooth',
     reconnecting: 'Reconnecting…',
     disconnected: 'Disconnected',
     unsupported: 'Unsupported browser',
   };
-  transport.addEventListener('connectionchange', () => {
-    $('connection').textContent = labels[transport.state] || transport.state;
+  function connectionChanged() {
+    $('connection').textContent =
+      transport.state === 'connected' && transport.kind === 'usb'
+        ? 'Connected via USB'
+        : labels[transport.state] || transport.state;
     if (transport.state === 'disconnected') {
       stopArtwork();
       connected = false;
@@ -534,15 +551,27 @@
       $('device-dialog').close();
       syncAnimation();
     }
-  });
-  async function finishPair(password) {
+  }
+  transport.addEventListener('connectionchange', connectionChanged);
+  async function useTransport(next) {
+    await transport.disconnect();
+    transport.removeEventListener('connectionchange', connectionChanged);
+    transport = globalThis.badgeDevice = next;
+    transport.addEventListener('connectionchange', connectionChanged);
+  }
+  async function finishPair() {
     const session = transport.session,
       controller = transport.sessionAbort,
       deviceId = transport.device.id;
-    const paired = await transport.pair(password);
-    key = paired.credential || password;
-    useBadge(transport.device.id);
-    const scope = await artworkCache.scope(deviceId, key);
+    const paired = await transport.pair();
+    key = transport.kind === 'usb' ? 'usb' : '';
+    const identity = paired.snapshot?.status?.deviceId || deviceId;
+    // A firmware update can add stable identity to a previously browser-keyed
+    // workspace. Keep that live draft while adopting the stronger identity.
+    if (activeBadgeId === deviceId && identity !== deviceId && !workspaces.has(identity))
+      activeBadgeId = identity;
+    useBadge(identity);
+    const scope = await artworkCache.scope(identity, paired.snapshot?.status?.cacheEpoch || key);
     transport.assertSession(session, controller);
     if (deviceId !== transport.device?.id)
       throw new DOMException(
@@ -563,17 +592,18 @@
       $('compatibility').textContent = defaultCompatibility;
       windowsPairingHelp = false;
     }
-    if ($('remember-badge').checked && transport.device?.id && /^[a-z2-9]{16}$/.test(key)) {
+    if ($('remember-badge').checked && transport.kind === 'bluetooth' && transport.device?.id) {
       remembered = {
         id: transport.device.id,
         name: transport.device.name || 'your badge',
-        credential: key,
+        native: true,
       };
       try {
         localStorage.setItem(rememberedKey, JSON.stringify(remembered));
       } catch {}
       showRemembered();
     } else if (remembered?.id === transport.device?.id) forgetRemembered();
+    $('choose-connection').hidden = false;
     $('connect').textContent = 'Disconnect';
     $('welcome').hidden = true;
     $('studio').hidden = false;
@@ -581,7 +611,6 @@
     $('disconnect-top').hidden = false;
     $('device-open').disabled = false;
     actions();
-    $('pair-dialog').close();
   }
   async function connectBadge(automatic = false) {
     if (connectionPending) return;
@@ -613,35 +642,69 @@
           await new Promise((resolve) => setTimeout(resolve, attempt ? 900 : 350));
         }
       }
-      if (!key && remembered?.id === transport.device?.id) key = remembered.credential;
-      if (key) await finishPair(key);
-      else $('pair-dialog').showModal();
+      if (!key && remembered?.id === transport.device?.id) key = '';
+      await finishPair();
     } catch (e) {
-      if (e.deviceResponse && transport.state === 'pairing') {
-        key = '';
-        if (remembered?.id === transport.device?.id) forgetRemembered();
-        $('pair-error').textContent =
-          e.deviceResponse && e.status === 401
-            ? 'Your badge’s access code has changed. Enter the new code shown on the badge to reconnect. Your unsaved artwork is safe.'
-            : connectionMessage(e);
-        if (!$('pair-dialog').open) $('pair-dialog').showModal();
-      } else {
-        const message = connectionMessage(e);
-        if (windows && (e.securityOperation || e.bluetoothStage === 'pairing')) {
-          $('compatibility').textContent = message;
-          windowsPairingHelp = true;
-        }
-        toast(message);
+      const message = connectionMessage(e);
+      if (windows && (e.securityOperation || e.bluetoothStage === 'pairing')) {
+        $('compatibility').textContent = message;
+        windowsPairingHelp = true;
       }
+      toast(message);
     } finally {
       connectionPending = false;
       $('connect').disabled = false;
     }
   }
-  $('connect').onclick = () => connectBadge();
+  async function connectUSB(port) {
+    if (connectionPending || busy) return;
+    // Request permission immediately within the click gesture.
+    const requested = port
+      ? Promise.resolve(port)
+      : navigator.serial.requestPort({ filters: [{ usbVendorId: 0x1a86, usbProductId: 0x7523 }] });
+    connectionPending = true;
+    try {
+      const selectedPort = await requested;
+      await useTransport(new SerialTransport());
+      await transport.connect(selectedPort);
+      await finishPair('');
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      connectionPending = false;
+    }
+  }
+  $('connect').onclick = async () => {
+    if (connected || transport.device) return connectBadge();
+    const ports = await SerialTransport.authorized().catch(() => []);
+    if (ports.length === 1) return connectUSB(ports[0]);
+    if (SerialTransport.supported()) $('connection-dialog').showModal();
+    else connectBadge();
+  };
+  $('connect-usb').disabled = !SerialTransport.supported();
+  $('connect-bluetooth').disabled = !BluetoothTransport.supported();
+  $('connect-usb').onclick = () => {
+    $('connection-dialog').close();
+    void connectUSB();
+  };
+  $('connect-bluetooth').onclick = async () => {
+    if (connectionPending || busy) return;
+    $('connection-dialog').close();
+    if (transport.kind !== 'bluetooth') {
+      key = '';
+      await useTransport(new BluetoothTransport());
+    }
+    await connectBadge();
+  };
+  $('choose-connection').onclick = () => $('connection-dialog').showModal();
+  $('connection-cancel').onclick = () => $('connection-dialog').close();
   $('disconnect-top').onclick = () => transport.disconnect();
+  $('cancel-transfer').onclick = async () => {
+    await transport.disconnect();
+    toast('Transfer canceled. Your artwork draft is kept. Reconnect to try again.');
+  };
   $('forget-badge').onclick = () => {
-    if (transport.device?.id) void artworkCache.clearDevice(transport.device.id);
+    if (activeBadgeId) void artworkCache.clearDevice(activeBadgeId);
     transport.disconnect();
     transport.device = null;
     key = intendedName = '';
@@ -649,33 +712,9 @@
     $('connect').textContent = 'Connect your badge';
     toast('Badge forgotten in this browser. Your artwork edits are kept.');
   };
-  $('pair-form').onsubmit = async (e) => {
-    e.preventDefault();
-    if (connectionPending) return;
-    connectionPending = true;
-    $('pair-error').textContent = '';
-    try {
-      if (!transport.device?.gatt.connected) await transport.reconnect();
-      await finishPair($('pair-password').value.trim().toUpperCase());
-      $('pair-password').value = '';
-    } catch (e) {
-      $('pair-error').textContent = connectionMessage(e);
-    } finally {
-      connectionPending = false;
-    }
-  };
-  $('pair-cancel').onclick = () => {
-    $('pair-dialog').close();
-    transport.disconnect();
-    transport.device = null;
-  };
-  $('pair-dialog').addEventListener('cancel', () => {
-    transport.disconnect();
-    transport.device = null;
-  });
   $('theme').value = BadgeTheme.mode;
   $('theme').onchange = (e) => BadgeTheme.set(e.target.value);
-  if (!BluetoothTransport.supported()) {
+  if (!BluetoothTransport.supported() && !SerialTransport.supported()) {
     $('connection').textContent = 'Unsupported browser';
     $('compatibility').textContent =
       'This browser cannot connect over Bluetooth. Open this site in Chrome or Edge on a supported desktop or Android device. iOS Safari is unsupported. USB installation requires desktop Web Serial.';
@@ -686,7 +725,7 @@
     !/Android/.test(navigator.userAgent)
   ) {
     $('compatibility').textContent =
-      'For first-time Bluetooth pairing, enter the six-digit number shown on the badge into your browser’s Bluetooth prompt. The four-letter editor access code is a separate step.';
+      'For first-time Bluetooth pairing, enter the six-digit number shown on the badge into your browser’s Bluetooth prompt. Open Connect to editor on the badge to allow a new editor.';
   }
   if (windows)
     $('compatibility').textContent =
@@ -1022,6 +1061,9 @@
   $('device-open').onclick = async () => {
     try {
       updateStatus(await transport.getStatus());
+      $('factory-reset').hidden = !status.factoryReset;
+      $('device-name').value = status.deviceName || status.bluetoothName || 'LanyardBadge';
+      $('name-form').hidden = !status.deviceName;
       $('brightness').value = status.brightness;
       $('brightness-output').value = status.brightness + '%';
       $('screen-timeout').value = status.screenTimeout ?? 120;
@@ -1033,6 +1075,15 @@
       $('device-dialog').showModal();
     } catch (e) {
       toast(e.message);
+    }
+  };
+  $('name-form').onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      updateStatus(await transport.json('/api/name', { name: $('device-name').value }));
+      $('name-status').textContent = 'Device name saved.';
+    } catch (e) {
+      $('name-status').textContent = e.message;
     }
   };
   $('device-close').onclick = () => $('device-dialog').close();
@@ -1056,12 +1107,20 @@
       toast(e.message);
     }
   };
-  $('calibrate-touch').onclick = async () => {
+  $('factory-reset').onclick = async () => {
+    const warning =
+      'Delete all artwork, settings and trusted editors from this badge? ' +
+      (changed ? 'You have unsaved browser edits; they will remain in this tab. ' : '') +
+      'You must also confirm physically on the badge.';
+    if (!confirm(warning)) return;
     try {
-      await transport.json('/api/calibrate', {});
-      toast('Touch each crosshair on your badge.');
+      await transport.json('/api/reset', {});
+      $('reset-status').textContent =
+        'Release BOOT, then hold it on the badge for 3 seconds. Go back on the badge to cancel.';
+      if (activeBadgeId) await artworkCache.clearDevice(activeBadgeId);
+      forgetRemembered();
     } catch (e) {
-      toast(e.message);
+      $('reset-status').textContent = e.message;
     }
   };
   $('collect-garbage').onclick = async () => {
@@ -1115,11 +1174,19 @@
       $('install-status').textContent = e.message;
     }
   }
-  $('install-open').onclick = () => {
+  $('install-open').onclick = async () => {
+    if (busy || connectionPending) {
+      toast('Wait for the current operation to finish before installing firmware.');
+      return;
+    }
+    await transport.disconnect();
     $('install-dialog').showModal();
     installer();
   };
-  $('install-close').onclick = () => $('install-dialog').close();
+  $('install-close').onclick = () => {
+    $('install-dialog').close();
+    void restoreConnection();
+  };
   $('install-mode').onchange = installer;
   window.addEventListener('beforeunload', (e) => {
     if (changed) {
@@ -1143,16 +1210,27 @@
     },
     draw,
     sync,
-    transport,
+    get transport() {
+      return transport;
+    },
   };
   edit();
   lock(false);
   showRemembered();
   async function restoreConnection() {
+    const ports = await SerialTransport.authorized().catch(() => []);
+    if (connectionPending || connected || busy) return;
+    if (ports.length === 1) {
+      await connectUSB(ports[0]);
+      if (connected) return;
+      await useTransport(new BluetoothTransport());
+    }
     if (!remembered || (intendedName && intendedName !== remembered.name)) return;
+    if (transport.kind !== 'bluetooth') await useTransport(new BluetoothTransport());
+    if (key === 'usb') key = '';
     try {
       if (await transport.restore(remembered.id)) {
-        if (!key) key = remembered.credential;
+        if (!key) key = '';
         $('connect').textContent = 'Reconnect badge';
         await connectBadge(true);
       } else if (!key) {

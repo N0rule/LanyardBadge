@@ -1,3 +1,5 @@
+> Historical record for 2.x. See [3.0 release verification](RELEASE-3.0.0.md) for current behavior.
+
 # Verification record — 2026-10-27
 
 ## 2.3.3 upload and editor polish

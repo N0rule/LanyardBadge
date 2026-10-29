@@ -84,12 +84,179 @@
       return this.json('/api/cards', deck);
     }
   }
-  class BluetoothTransport extends DeviceTransport {
+  class PacketTransport extends DeviceTransport {
+    frame(op, seq, offset, data = new Uint8Array()) {
+      const b = new Uint8Array(7 + data.length),
+        v = new DataView(b.buffer);
+      b[0] = op;
+      v.setUint16(1, seq, true);
+      v.setUint32(3, offset, true);
+      b.set(data, 7);
+      return b;
+    }
+    wait(op, offset) {
+      return new Promise((resolve, reject) => {
+        let timer;
+        const pending = {
+          op,
+          offset,
+          touch: () => {
+            clearTimeout(timer);
+            timer = setTimeout(
+              () =>
+                pending.reject(
+                  Error('The badge timed out. Reconnect and retry; your edits are kept.'),
+                ),
+              15000,
+            );
+          },
+          resolve: (value) => {
+            clearTimeout(timer);
+            if (this.pending === pending) this.pending = null;
+            resolve(value);
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            if (this.pending === pending) this.pending = null;
+            reject(error);
+          },
+        };
+        this.pending = pending;
+        pending.touch();
+      });
+    }
+    async acknowledged(op, offset, data, expected) {
+      const ack = this.wait(0, expected);
+      const pending = this.pending;
+      try {
+        await Promise.all([this.write(op, offset, data), ack]);
+      } catch (error) {
+        pending.reject(error);
+        throw error;
+      }
+    }
+    receive(v) {
+      if (v.byteLength < 7 || v.getUint16(1, true) !== this.sequence) return;
+      const op = v.getUint8(0),
+        at = v.getUint32(3, true),
+        p = this.pending;
+      p?.touch();
+      if (op === 0) {
+        if (p?.op === 0 && at === p.offset) p.resolve();
+        return;
+      }
+      if (op === 1) {
+        if (at > 1024 * 1024 || v.byteLength !== 9) {
+          p?.reject(Error('Invalid badge response'));
+          return;
+        }
+        // Some BlueZ clients deliver the same value-change event twice.
+        if (this.response && this.response.length === at && this.code === v.getUint16(7, true))
+          return;
+        this.response = new Uint8Array(at);
+        this.received = 0;
+        this.code = v.getUint16(7, true);
+        return;
+      }
+      if (op === 2) {
+        const bytes = new Uint8Array(v.buffer, v.byteOffset + 7, v.byteLength - 7);
+        if (this.response && at < this.received && at + bytes.length <= this.received) {
+          // Accept only a byte-identical replay; conflicting/overlapping chunks fail below.
+          if (bytes.every((byte, i) => this.response[at + i] === byte)) return;
+        }
+        if (!this.response || at !== this.received || at + bytes.length > this.response.length) {
+          p?.reject(Error('Incomplete badge response'));
+          return;
+        }
+        this.response.set(bytes, at);
+        this.received += bytes.length;
+        this.write(5, this.received).catch((e) => p?.reject(e));
+        return;
+      }
+      if (op === 3 && p) {
+        if (!this.response || at !== this.received || at !== this.response.length)
+          p.reject(Error('Incomplete badge response'));
+        else if (this.code >= 400) {
+          let message = 'Badge request failed';
+          try {
+            message = JSON.parse(new TextDecoder().decode(this.response)).error || message;
+          } catch {}
+          const error = Error(message);
+          error.deviceResponse = true;
+          error.status = this.code;
+          p.reject(error);
+        } else if (p.op === 3)
+          p.resolve(
+            new Response(this.response, {
+              status: this.code,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          );
+        else p.reject(Error('Unexpected badge response'));
+      }
+    }
+    request(path, options = {}) {
+      const session = this.session;
+      const operation = this.tail.then(() => {
+        if (session !== this.session) throw Error('Previous Bluetooth session closed.');
+        return this.transfer(path, options);
+      });
+      this.tail = operation.catch(() => {});
+      return operation;
+    }
+    async transfer(path, { method = 'GET', body, raw = false, progress } = {}) {
+      const session = this.session;
+      if (!this.isOpen()) throw Error('Connect your badge to continue.');
+      this.sequence = (this.sequence + 1) & 65535;
+      this.response = null;
+      const bytes =
+        body === undefined
+          ? new Uint8Array()
+          : raw
+            ? new Uint8Array(body)
+            : encoder.encode(JSON.stringify(body));
+      const header = encoder.encode(
+        JSON.stringify({ method, path, token: this.token, length: bytes.length }),
+      );
+      const size = this.packetBytes - 7;
+      try {
+        for (let at = 0; at < header.length; at += size) {
+          const part = header.subarray(at, at + size);
+          await this.acknowledged(4, at, part, at + part.length);
+        }
+        await this.acknowledged(1, 0, undefined, 0);
+        for (let at = 0; at < bytes.length; at += size) {
+          const part = bytes.subarray(at, at + size);
+          await this.acknowledged(2, at, part, at + part.length);
+          progress?.(Math.floor(((at + part.length) / bytes.length) * 100));
+        }
+        const response = this.wait(3, bytes.length);
+        const [, r] = await Promise.all([this.write(3, bytes.length), response]);
+        if (!r.ok) {
+          let message = 'Badge request failed';
+          try {
+            message = (await r.json()).error || message;
+          } catch {}
+          throw Error(message);
+        }
+        return r;
+      } catch (e) {
+        if (
+          session === this.session &&
+          (!e.deviceResponse || (e.status === 401 && path !== '/api/pair'))
+        )
+          this.disconnect();
+        throw e;
+      }
+    }
+  }
+  class BluetoothTransport extends PacketTransport {
     constructor() {
       super();
       this.sequence = 0;
       this.tail = Promise.resolve();
       this.pending = null;
+      this.kind = 'bluetooth';
       this.packetBytes = 20;
       this.session = 0;
       this.sessionAbort = new AbortController();
@@ -229,7 +396,7 @@
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
-      if (hello.byteLength !== 3 || ![1, 2].includes(hello.getUint8(0)))
+      if (hello.byteLength !== 3 || hello.getUint8(0) !== 3)
         throw Object.assign(Error('This badge needs a compatible firmware update.'), {
           bluetoothStage: 'protocol',
         });
@@ -291,15 +458,6 @@
       this.device?.gatt.disconnect();
       this.lost();
     }
-    frame(op, seq, offset, data = new Uint8Array()) {
-      const b = new Uint8Array(7 + data.length),
-        v = new DataView(b.buffer);
-      b[0] = op;
-      v.setUint16(1, seq, true);
-      v.setUint32(3, offset, true);
-      b.set(data, 7);
-      return b;
-    }
     write(op, offset, data) {
       const packet = this.frame(op, this.sequence, offset, data),
         rx = this.rx,
@@ -334,161 +492,16 @@
       this.writeTail = operation;
       return operation;
     }
-    wait(op, offset) {
-      return new Promise((resolve, reject) => {
-        let timer;
-        const pending = {
-          op,
-          offset,
-          touch: () => {
-            clearTimeout(timer);
-            timer = setTimeout(
-              () =>
-                pending.reject(
-                  Error('The badge timed out. Reconnect and retry; your edits are kept.'),
-                ),
-              15000,
-            );
-          },
-          resolve: (value) => {
-            clearTimeout(timer);
-            if (this.pending === pending) this.pending = null;
-            resolve(value);
-          },
-          reject: (error) => {
-            clearTimeout(timer);
-            if (this.pending === pending) this.pending = null;
-            reject(error);
-          },
-        };
-        this.pending = pending;
-        pending.touch();
-      });
-    }
-    async acknowledged(op, offset, data, expected) {
-      const ack = this.wait(0, expected);
-      const pending = this.pending;
-      try {
-        await Promise.all([this.write(op, offset, data), ack]);
-      } catch (error) {
-        pending.reject(error);
-        throw error;
-      }
-    }
-    receive(v) {
-      if (v.byteLength < 7 || v.getUint16(1, true) !== this.sequence) return;
-      const op = v.getUint8(0),
-        at = v.getUint32(3, true),
-        p = this.pending;
-      p?.touch();
-      if (op === 0) {
-        if (p?.op === 0 && at === p.offset) p.resolve();
-        return;
-      }
-      if (op === 1) {
-        if (at > 1024 * 1024 || v.byteLength !== 9) {
-          p?.reject(Error('Invalid badge response'));
-          return;
-        }
-        // Some BlueZ clients deliver the same value-change event twice.
-        if (this.response && this.response.length === at && this.code === v.getUint16(7, true))
-          return;
-        this.response = new Uint8Array(at);
-        this.received = 0;
-        this.code = v.getUint16(7, true);
-        return;
-      }
-      if (op === 2) {
-        const bytes = new Uint8Array(v.buffer, v.byteOffset + 7, v.byteLength - 7);
-        if (this.response && at < this.received && at + bytes.length <= this.received) {
-          // Accept only a byte-identical replay; conflicting/overlapping chunks fail below.
-          if (bytes.every((byte, i) => this.response[at + i] === byte)) return;
-        }
-        if (!this.response || at !== this.received || at + bytes.length > this.response.length) {
-          p?.reject(Error('Incomplete badge response'));
-          return;
-        }
-        this.response.set(bytes, at);
-        this.received += bytes.length;
-        this.write(5, this.received).catch((e) => p?.reject(e));
-        return;
-      }
-      if (op === 3 && p) {
-        if (!this.response || at !== this.received || at !== this.response.length)
-          p.reject(Error('Incomplete badge response'));
-        else if (this.code >= 400) {
-          let message = 'Badge request failed';
-          try {
-            message = JSON.parse(new TextDecoder().decode(this.response)).error || message;
-          } catch {}
-          const error = Error(message);
-          error.deviceResponse = true;
-          error.status = this.code;
-          p.reject(error);
-        } else if (p.op === 3)
-          p.resolve(
-            new Response(this.response, {
-              status: this.code,
-              headers: { 'Content-Type': 'application/json' },
-            }),
-          );
-        else p.reject(Error('Unexpected badge response'));
-      }
-    }
-    request(path, options = {}) {
-      const session = this.session;
-      const operation = this.tail.then(() => {
-        if (session !== this.session) throw Error('Previous Bluetooth session closed.');
-        return this.transfer(path, options);
-      });
-      this.tail = operation.catch(() => {});
-      return operation;
-    }
-    async transfer(path, { method = 'GET', body, raw = false, progress } = {}) {
-      const session = this.session;
-      if (!this.device?.gatt.connected) throw Error('Connect your badge to continue.');
-      this.sequence = (this.sequence + 1) & 65535;
-      this.response = null;
-      const bytes =
-        body === undefined
-          ? new Uint8Array()
-          : raw
-            ? new Uint8Array(body)
-            : encoder.encode(JSON.stringify(body));
-      const header = encoder.encode(
-        JSON.stringify({ method, path, token: this.token, length: bytes.length }),
-      );
-      const size = this.packetBytes - 7;
-      try {
-        for (let at = 0; at < header.length; at += size) {
-          const part = header.subarray(at, at + size);
-          await this.acknowledged(4, at, part, at + part.length);
-        }
-        await this.acknowledged(1, 0, undefined, 0);
-        for (let at = 0; at < bytes.length; at += size) {
-          const part = bytes.subarray(at, at + size);
-          await this.acknowledged(2, at, part, at + part.length);
-          progress?.(Math.floor(((at + part.length) / bytes.length) * 100));
-        }
-        const response = this.wait(3, bytes.length);
-        const [, r] = await Promise.all([this.write(3, bytes.length), response]);
-        if (!r.ok) {
-          let message = 'Badge request failed';
-          try {
-            message = (await r.json()).error || message;
-          } catch {}
-          throw Error(message);
-        }
-        return r;
-      } catch (e) {
-        if (
-          session === this.session &&
-          (!e.deviceResponse || (e.status === 401 && path !== '/api/pair'))
-        )
-          this.disconnect();
-        throw e;
-      }
+    isOpen() {
+      return !!this.device?.gatt.connected;
     }
   }
-  globalThis.BadgeTransport = { DeviceTransport, BluetoothTransport, SERVICE, RX, TX };
+  globalThis.BadgeTransport = {
+    DeviceTransport,
+    PacketTransport,
+    BluetoothTransport,
+    SERVICE,
+    RX,
+    TX,
+  };
 })();

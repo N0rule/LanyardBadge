@@ -96,7 +96,7 @@ test('browser storage denial falls back to memory without failing connection or 
     }),
   );
   await setup(page);
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
 });
 test('ranged preview reads reconstruct exact pixels and let foreground requests run', async ({
   page,
@@ -239,7 +239,7 @@ test('a canceled preview cannot report an old-session error over a replacement c
   await page.waitForFunction(() => !!globalThis.rejectOldPreview);
   await page.evaluate(() => badgeDevice.disconnect());
   await page.locator('#connect').click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   await page.waitForFunction(() => !!BadgeEditor.state);
   await page.evaluate(() => rejectOldPreview(Error('Previous Bluetooth session closed.')));
   await expect(page.locator('#toast')).not.toContainText('Previous Bluetooth session closed.');

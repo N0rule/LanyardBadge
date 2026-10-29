@@ -1,5 +1,6 @@
 #pragma once
 #include "../core/Core.h"
+#include "../core/DeviceName.h"
 #include <Arduino.h>
 #include <Preferences.h>
 namespace badge {
@@ -21,21 +22,26 @@ struct SettingsV3 : SettingsV2 {
     bool provisioned = false;
     char pairingKey[17]{};
 };
-struct Settings : SettingsV3 {
+struct SettingsV4 : SettingsV3 {
     uint32_t darkMode = 1;
+};
+struct Settings {
+    uint32_t version = 5, interval = 15, screenTimeout = 120, darkMode = 1;
+    uint8_t brightness = 65, rotation = 0;
+    bool autoplay = false, provisioned = false;
+    char selected[9]{"00000001"}, defaultCard[9]{"00000001"};
+    Calibration calibration{};
+    uint32_t crc = 0;
 };
 class SettingsStore {
     Preferences prefs_;
 
   public:
     Settings value;
+    char cacheEpoch[17]{};
+    String deviceName = "LanyardBadge";
+    bool rename(const String &name);
     bool begin();
     bool save();
-    bool revokePairing();
-    String pairingCode() const {
-        char code[5];
-        shortPairingCode(value.pairingKey, code);
-        return code;
-    }
 };
 } // namespace badge

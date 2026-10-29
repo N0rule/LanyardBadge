@@ -1,5 +1,6 @@
 // GATT peripheral simulation, not evidence of a radio connection.
 function installMock(config = {}) {
+  Object.defineProperty(navigator, 'serial', { configurable: true, value: undefined });
   const base = {
     id: '00000001',
     title: 'First card',
@@ -43,6 +44,7 @@ function installMock(config = {}) {
     shortCode: 'ABCD',
     abandonedResponse: !!localStorage.getItem('ble.mock.abandoned'),
     dropDiscovery: config.dropDiscovery || 0,
+    protocol: config.protocol || 3,
     mtu: 23,
     header: [],
     data: [],
@@ -145,13 +147,17 @@ function installMock(config = {}) {
       return answer(query.has('offset') ? 206 : 200, new Uint8Array(bytes.slice(at, at + n)));
     }
     if (request.path === '/api/pair') {
-      const matches = body.password === mock.password || body.password === mock.shortCode;
+      const matches =
+        mock.protocol === 3 ||
+        config.serial ||
+        body.password === mock.password ||
+        body.password === mock.shortCode;
       return answer(
         matches ? 200 : 401,
         matches
           ? {
               token: 'a'.repeat(64),
-              credential: mock.password,
+              ...(mock.protocol === 3 ? {} : { credential: mock.password }),
               ...(config.snapshot ? { snapshot: { deck: mock.deck, status: mock.status } } : {}),
             }
           : { error: 'Wrong pairing key' },
@@ -167,6 +173,16 @@ function installMock(config = {}) {
       mock.deck = body;
       mock.deck.revision++;
       return answer(200, mock.deck);
+    }
+    if (request.path === '/api/name') {
+      if (!/^[!-~](?:[ -~]{0,22}[!-~])?$/.test(body.name))
+        return answer(422, { error: 'Invalid device name' });
+      mock.status.deviceName = body.name;
+      return answer(200, mock.status);
+    }
+    if (request.path === '/api/reset') {
+      mock.resetRequested = true;
+      return answer(202, { confirmation: 'Hold BOOT' });
     }
     if (request.path === '/api/settings') {
       Object.assign(mock.status, body);
@@ -274,6 +290,7 @@ function installMock(config = {}) {
       }
     },
   };
+  if (config.serial) mock.wire = { rx, tx };
   Object.defineProperty(navigator, 'bluetooth', {
     value: {
       requestDevice: async (options) => {

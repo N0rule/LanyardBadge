@@ -1,51 +1,23 @@
-# LanyardBadge artwork architecture
+# LanyardBadge 3 architecture
 
-## Hardware and display ownership
+## Hardware and display
 
-Classic ESP32-D0WD-V3, 4 MB flash, no PSRAM. Portrait 240 × 320, rotation 0,
-USB down. Libraries remain pinned in `platformio.ini`; no new firmware library.
-LovyanGFX owns SPI2, XPT2046 owns SPI3 on the original pins. The ST7789 bus stays
-at the proven 40 MHz. There is no TE input in the verified board wiring. Software
-buffering cannot guarantee tear-free output without controller synchronization.
-No unverified GPIO is driven to obtain TE; physical tearing assessment remains
-necessary.
+Classic ESP32-D0WD-V3, 4 MB flash, no PSRAM; CYD2USB ST7789 in portrait
+240 × 320 with USB down. LovyanGFX owns SPI2 and XPT2046 owns SPI3 on the
+established pins. Display SPI remains 40 MHz. There is no verified TE input;
+software buffering alone does not guarantee tear-free transitions.
 
-One aligned 15,360-byte stripe buffer serves both rendering paths. Full-screen
-artwork streams ten 32-row stripes from validated RGB565 BMPs, reversing each
-bottom-up stripe in place. It avoids LVGL's repeated per-row decoder work and
-filesystem allocations. No full-screen framebuffer or extra sprite is allocated.
-The loop polls touch after each completed artwork frame. A whole artwork transition remains a
-bounded synchronous operation; BLE acknowledgements and menu input wait until
-that transition finishes. Full-screen transitions therefore still have a visible
-scanout possibility, documented rather than described as tear-free.
+One 15,360-byte stripe buffer serves still and animated artwork. BMPs stream
+bottom-up RGB565 rows; LBA animation decodes into alternating halves while DMA
+transmits the previous half. No full-screen framebuffer is allocated. Static
+artwork is not continuously redrawn. LVGL owns menus, onboarding, progress and
+internal touch recovery; direct artwork rendering suspends LVGL invalidation.
 
-LVGL draws menus, calibration, onboarding and upload overlays using its existing
-48 KiB allocator. The direct artwork path disables LVGL invalidation and skips
-its handler until ownership returns to LVGL. Menu entry rebuilds once, invalidates
-the screen, and resumes LVGL. Display/slideshow settings update existing button
-labels in place, retaining scroll position and reducing partial redraws. Upload
-percentages update only when their integer value changes. Static artwork has no
-continuous redraw or animation. LVGL flushes wait for DMA before releasing their buffer. Animation uses two halves
-of the same stripe buffer: it decodes the next half while DMA transmits the previous
-one, and waits before reusing a half or releasing display ownership. A frame uses
-one address window/transaction, retaining the proven 40 MHz SPI clock. Batched
-RLE records, table CRC and sequential cached reads reduce decoder/filesystem overhead.
-
-## Inactivity and touch
-
-`ScreenActivity` is a portable, tested state machine with wrap-safe millisecond
-arithmetic. Timeout values are 0/15/30/60/120/300/600 seconds (0 means Never), with
-120 seconds as the new default. Sleep writes physical PWM zero without changing
-saved brightness. LVGL stops rendering; raw resistive pressure polling continues.
-The first stable waking press is consumed until release, independently of whether
-calibration is saved. Slideshow timing restarts when artwork becomes eligible
-again. Uploads and calibration keep the screen awake.
-
-Factory mapping uses the coefficients retained from the supplied board's prior
-four-corner calibration. It is usable even with `valid=false`; that flag describes
-user calibration, not permission to use touch. Calibration is optional under
-Settings → Advanced. BOOT held two seconds opens the QR, six seconds opens touch
-recovery; no power-loss reset or flash erase is involved.
+Touch gestures use the preserved calibration or established factory mapping.
+BOOT held two seconds opens connection; six seconds opens internal touch
+recovery. Ordinary settings expose no calibration wizard. Sleep sets backlight
+PWM to zero without changing saved brightness, suspends rendering, and consumes
+the first waking press. Slideshow restarts its interval after wake.
 
 ## Storage and migration
 
@@ -54,232 +26,70 @@ recovery; no power-loss reset or flash erase is involved.
 | NVS | 0x9000 | 24 KiB |
 | PHY | 0xf000 | 4 KiB |
 | Application | 0x10000 | 2 MiB |
-| LittleFS | 0x210000 | 1,984 KiB |
+| LittleFS assets | 0x210000 | 1,984 KiB |
 
-This preserves the live 2.1.0 layout. The starting source's larger application
-partition would have overwritten stored artwork. Removing Wi-Fi, HTTP, embedded
-web assets and bundled sample inflation lets BLE firmware fit the existing slot.
-The upload guard also removes Arduino’s unused `boot_app0.bin` at 0xe000,
-which would overlap NVS/PHY with this factory layout, and validates sector-rounded
-write ranges and compiled partition addresses. Saved Wi-Fi credentials remain in the original settings for recovery; no API
-exposes them. Wi-Fi editing is no longer offered. Older single-sketch or 2.5 MiB
-layouts need a backup and explicit offline migration, not this update manifest.
+Normal updates write the application only. Flash guards validate the compiled
+partition table and sector-rounded writes, excluding the unused Arduino
+boot_app0 image that would overlap this board's NVS/PHY layout.
 
-Schema 4 uses a separate CRC-checked NVS key `settings4`, preserves and migrates
-validated `settings3` and original `settings` blobs, and adds the device's saved
-dark/light theme. Schema 3 introduced timeout, provisioning and a device-specific
-pairing key. Normal selection/setting changes coalesce for
-1.5 seconds; restart flushes pending writes. Provisioning also derives from a
-valid manifest and an available image at boot, so interrupted NVS writes cannot
-strand a successfully saved first card. Corrupt settings fall back to retained
-v2 or safe defaults.
+Settings versions 2/3/4 migrate to version 5 with brightness, rotation, timeout,
+theme, slideshow, selection and touch mapping retained. Retired Wi-Fi and
+ownership fields exist only in migration structs and old NVS blobs; the active
+settings and API do not use them. Device names are independent NVS strings.
+The public random cache epoch changes after factory reset.
 
-LittleFS is never formatted on an ordinary mount failure. Initialization first
-checks **every byte** of the asset partition is erased (0xff). Nonblank damaged
-storage is left intact. Images upload to a temporary file and are checked for
-exact dimensions, byte count and RGB565 masks before rename. Card metadata uses
-CRC validation, verified temporary writes, current/backup generations and revision
-conflict detection. Garbage collection preserves images used by either generation.
-An interrupted asset upload never replaces the current manifest. Zero through ten
-cards are supported; an empty collection returns to QR onboarding. Legacy profile
-and custom cards still parse/render on the badge; only artwork creation appears
-in the editor.
+Artwork uploads are validated before becoming immutable files. Deck commits
+check revisions and references, write a CRC-protected temporary manifest, then
+rotate current/backup generations. Garbage collection preserves both generations.
+An interrupted upload never becomes a committed card. Fresh blank partitions
+start empty; existing unrecognized storage is never automatically formatted.
 
-## BLE and browser
+Only image/GIF artwork cards are supported. Profile/custom manifests are detected
+before loading and kept intact. A reset-required message replaces their obsolete
+renderer. Upload, commit and garbage collection are blocked until an acknowledged
+factory reset. Empty version-2 compatibility fields let current artwork browser
+workspaces survive the upgrade.
 
-`Network` is now a transport-neutral device API despite its historical name.
-NimBLE callbacks copy bounded packets to a four-entry queue; the Arduino loop
-alone mutates files, settings and LVGL. Overflow or timeout aborts a transfer and
-disconnects; no callback performs filesystem I/O or draws a screen.
+## Connections
 
-See [the protocol](API.md). Both request headers and body are chunked down to MTU
-23. Writes have explicit offset acknowledgements. Response chunks also require
-acknowledgements, bounding notification pressure. Browser GATT writes have an
-independent queue because a notification may arrive before its ACK write promise
-settles; download timeouts refresh on incoming chunks. Each packet carries a request
-sequence and each queued firmware packet a connection generation. On disconnect,
-partial upload and session credentials are discarded. A 15-second inactivity
-timeout applies per active transfer; the whole card may take longer.
+`Transfer` implements bounded, stop-and-wait operation packets. BLE and serial
+share this engine and the transport-neutral `Network` API. Exclusive ownership
+prevents simultaneous transports from corrupting a transaction. Disconnect aborts
+temporary writes and releases the session. Partial transfers expire after 15 seconds.
 
-The link-security profile `sc-passkey-v1` uses authenticated encrypted GATT,
-DisplayOnly pairing, bonding, MITM authentication and enforced LE Secure Connections.
-The compile-time SC-only setting is asserted; the authentication callback also
-requires a 16-byte key. The central starts security by reading the protected HELLO,
-rather than the peripheral racing service discovery with an SMP request. Fresh
-six-digit PINs use hardware entropy and rejection sampling. BLE callbacks publish
-only atomic PIN state; the main loop renders the physical PIN screen, keeps it
-awake and restores the preceding screen on completion. Cancel disconnects without
-changing ownership credentials or files. PINs expire after 60 seconds and are never
-logged, persisted or exposed in diagnostics. Bonded reconnects avoid repeated PIN entry.
-An encrypted but unauthenticated legacy bond gets one standard security upgrade;
-application characteristics remain inaccessible until authentication succeeds.
+BLE protocol 3 requires native authenticated LE Secure Connections and a 16-byte
+key. New peers need the two-minute physical enrollment window; bonded peers
+reconnect without an application password. A fresh six-digit PIN is displayed
+only on the badge for the native pairing prompt. It is not exposed in status,
+URLs or logs. Forget paired editors deletes bonds and reopens enrollment.
+NimBLE callbacks enqueue bounded packets; storage and UI work stays on the loop.
 
-This uses the existing stack rather than adding a new application cryptographic
-protocol. Physical PIN entry authenticates the link; a random per-device credential
-separately authorizes ownership. A four-letter code is derived from it without
-changing the settings schema. Short-code enrollment requires the physical connection
-screen. Five failed application attempts block pairing for 30 seconds, including
-across disconnects until reboot. The QR carries the short code in its fragment,
-which is removed immediately. Successful protected application pairing returns the
-strong credential and a temporary session token. API sessions expire after 20 minutes
-of inactivity. With Remember enabled, the browser saves device ID and credential in
-localStorage and uses `getDevices()` where supported. Forget badge removes browser
-access while preserving in-memory edits. Physical Revoke editor access rotates the
-credential/code and disconnects editors while retaining OS bonds, NVS layout and artwork.
-Legacy strong QR keys remain compatible. A photographed short code remains usable
-while the physical connection screen is open until revoked.
+USB uses 115200-baud CH340 UART, CRC-protected bounded SLIP frames, a versioned
+handshake and short API sessions. Physical access plus browser serial permission
+authorizes editing. A 30-second lease, refreshed by ten-second browser heartbeats,
+releases abandoned USB sessions. Serial logging is suppressed during editing.
+See [API](API.md) and [USB framing](USB-PROTOCOL.md).
 
-Upstream Chromium's WinRT ProvidePin path supports native PIN entry independently
-of its experimental ConfirmOnly/ConfirmPinMatch support. Actual user-assisted Helium
-Windows tests verified browser-first PIN entry and bonded reconnect with unsaved edits
-retained. No Windows Settings or flags were needed for that flow. Brave refresh failed
-in the tester's configuration; the cause is unverified. Chrome/Edge, Android and Linux
-still need radio validation of the new security profile. Linux also needs a desktop
-pairing agent. Old firmware remains readable through wire versions 1/2 with its older
-security policy. See [the investigation](RECOVERY-2.3.4.md) for captured failures and
-remaining migration tests.
+Browser transports share request serialization, validation, upload and cancellation.
+Workspaces are keyed by stable chip identity; renaming or switching transports
+preserves drafts. IndexedDB snapshots use the public cache epoch to reject stale
+post-reset content. Old remembered ownership secrets are discarded during browser
+migration. Installer handoff closes editing first and restores the connection on
+return. USB and BLE permission dialogs remain browser/OS controlled.
 
-Protocol 2 adds an encrypted operation-6 session reset, acknowledged before
-authentication. Page reloads can leave the physical BLE connection alive while
-abandoning an artwork response. The reset closes that response, aborts temporary
-uploads, revokes the previous API session and accepts a new random sequence.
-Committed artwork is untouched. Late response acknowledgements are ignored.
-The browser also supports protocol 1 and briefly retries GATT teardown races.
-Each browser session owns cancellable writes and API queues. Disconnect rejects
-those operations; queued requests from the previous session cannot enter the new
-queue or change its sequence. Same-page reconnect explicitly stops/restarts the
-notification subscription, since native BlueZ/Chromium state can otherwise retain
-"notifying" while the peripheral's subscription has been lost.
+## Factory reset
 
-Advertising carries the complete device name in its primary packet and the
-service UUID in its scan response. Browser filters accept either identity field,
-then verify the real GATT service. A bounded firmware watchdog restarts missing
-advertising while disconnected; it does not reset an active connection.
+A remote reset request opens physical confirmation; it does not erase data.
+The badge requires BOOT release followed by a three-second hold. A journal in
+`badge-reset` is written before reboot. Before starting UI/transports, reset
+removes BLE bonds, formats only the assets partition, and clears `badge-v2`.
+The journal is removed only after all steps succeed. Interrupted/failed resets
+retry at boot; unreadable journal state fails closed. Firmware and bootloader
+survive. Browser reset UI warns about drafts and invalidates remembered state.
 
-`web/transport.js` separates operations from GATT packets. `artwork.js` supplies
-one original-image transform for preview and RGB565 export: rotate, fit/fill
-scale × zoom, then screen-space translation. Movement percentages describe the
-allowed travel range, positive right/down, and clamp to prevent holes in Fill.
-Pointer capture, cancellation and requestAnimationFrame keep dragging bounded.
-Loaded originals are retained during editing; saves do not resample the source.
-Transforms persist when selecting other cards in the tab; after reconnect/reload,
-previously saved cards start from their flattened on-device artwork.
+## Delivery
 
-## Design and deployment
-
-Disconnected visitors see a landing page with Connect and Install firmware only;
-the editor is hidden before first paint. Connection exposes the gallery/editor.
-Empty editor previews use theme-independent neutral gray. Freshly provisioned,
-verified blank boards receive an original geometric First light BMP; existing
-filesystems and intentionally empty collections are never reseeded. Saved
-cards remain intact. Disconnect hides the editor while retaining unsaved state
-for reconnect. Light mode uses white surfaces; device theme is independent.
-Device submenu arrows return to their parent, and only the main menu closes to
-artwork. Release menus omit diagnostics; benchmark commands require an explicit
-`BADGE_DIAGNOSTICS=1` build. Serial status remains available for support/testing.
-
-The frontend-design skill guided a symmetrical charcoal enclosure as the focal
-object, local Montserrat headings, quiet mist surfaces, cobalt controls and coral
-unsaved feedback. Themes use semantic tokens and initialize before CSS. On mobile,
-the preview and controls precede the collection. No fake hardware chrome or theme
-filter is applied to artwork.
-
-GitHub Actions tests the editor and portable firmware core, builds pinned firmware,
-and publishes static `web/` plus a firmware directory named for the deployed commit.
-Script/style URLs include the commit to prevent old cached transport code being
-loaded by a new page. Older packages remain in workflow artifacts for GitHub’s
-configured retention period; Pages serves the current deployment. USB uses locally
-vendored ESP Web Tools 10.4.0, loaded only when requested. Fresh and update manifests
-are separate; updates contain only the application at 0x10000. Neither includes a
-filesystem or NVS image. The installer prompts explicitly about erasure and leaves
-it unchecked. No OTA support is advertised. No backend or user account is required.
-
-Primary implementation references: [LVGL 9.2 display ownership](https://docs.lvgl.io/9.2/porting/display.html),
-[Web Bluetooth](https://developer.chrome.com/docs/capabilities/bluetooth),
-[ESP Web Tools](https://esphome.github.io/esp-web-tools/), and pinned library sources
-under PlatformIO's dependency directory.
-
-## Upload presentation
-
-The release upload screen is an opaque LVGL top layer using the saved device
-palette. Its objects are allocated once per transfer; integer percentages only
-update the existing label and progress fill. Underlying menu/artwork redraws and
-touch actions pause while this layer owns the display. Inactivity and slideshow
-remain paused until it is dismissed. No framebuffer or animation layer is added.
-
-The API reports Receiving → Saving → Complete. Accepting an asset file is not
-completion: Saving stays visible until the atomic card manifest commit succeeds.
-A failed transfer/commit shows Upload stopped; existing card metadata stays valid.
-A disconnect aborts the temporary asset and shows the failure state. Successful
-and failed results remain for 1.2 seconds before normal rendering resumes. A
-45-second abandoned metadata stage also releases the UI; the BLE packet timeout
-continues to handle interrupted byte transfers separately. Serial status exposes
-`uploadStage` and `uploadPercent` for validation without adding release controls.
-
-The website keeps gallery / badge / editor columns. A fresh draft begins with a
-neutral preview and a file chooser; rotation/crop controls appear once a source
-image exists. The filename supplies a default ASCII title without replacing a
-custom title. Local thumbnails use the same artwork transform as export. Source
-images remain unresampled between edits. File decoding and upload lock navigation
-to keep operations attached to the intended card; failures retain the edit state.
-
-## Browser artwork cache and loading (2.3.4)
-
-The badge remains authoritative for card metadata. An opt-in pairing snapshot
-returns fresh metadata and status in the authenticated response; older firmware
-falls back to the existing reads. The editor does not display a connected state
-based on cached metadata or open a saved collection without real authentication.
-
-Immutable artwork bytes are cached in IndexedDB by browser-granted badge ID,
-SHA-256 credential fingerprint and artwork ID. Credential rotation changes the
-namespace, including after a fresh installation. Records include a byte digest
-and BMP validation; corrupt records become misses. The disk cache retains at most
-64 assets; its memory front retains 20. Storage denial/quota/blocked operations
-fall back to memory or a normal device read. Forget badge clears its artwork
-cache. These disposable copies never replace the badge's files or store additional
-copies of pairing credentials. Unsaved in-memory workspaces stay bound to badge
-identity when switching devices.
-
-The selected card loads lazily; other gallery thumbnails hydrate from local cache
-only. Concurrent requests for the same preview are coalesced. Uploads seed the
-cache with the BMP already prepared on the client, including before metadata
-retry; no image read-back is needed. Cropping, rotation, resizing, RGB565 encoding,
-preview decoding and thumbnails run on the client. The badge receives final
-validated display-ready pixels and commits its own files/metadata.
-
-Uncached reads on 2.3.4 use authenticated bounded ranges (up to 4096 bytes), with
-relative response offsets and strict range validation. Between ranges, queued
-foreground requests can run. Changing cards, choosing artwork or disconnecting
-cancels remaining reads without resetting the BLE session. Older firmware retains
-its full-file path. First uncached previews still need one complete image transfer;
-range framing adds overhead in exchange for responsiveness. Partial images are
-never installed or cached. Current client transforms/generation checks prevent a
-late download from overwriting newer edits.
-
-
-## Animated artwork and preview alignment
-
-The preview column is a centered flex group, including the heading, badge,
-save-state, animation control, upload actions and progress. The group is centered
-vertically in the available desktop column; mobile content remains naturally
-sized and scrollable. Browser geometry tests cover desktop, tablet and mobile.
-
-GIF input uses native compositing and the shared artwork transform, then encodes
-a size-bounded LBA1 asset. The firmware validates complete temporary uploads and
-streams decoded stripes through the existing display buffer. Menu/upload/pairing
-views and sleeping pause display ownership; returning to a card begins with its
-full first frame. Source GIFs and cached committed animations follow the existing
-per-device draft and credential-cache lifecycles. See [GIF support](GIF.md).
-
-
-## Physical menu gesture
-
-A stationary 450 ms screen hold opens the menu, with 22 px movement tolerance.
-Movement beyond that threshold cancels a hold even if the finger returns. Horizontal
-swipes keep their existing distance/direction checks. Resistive touch still needs
-two valid samples to begin, and now tolerates a pressure dropout shorter than 32 ms
-before releasing contact. This prevents a noisy sample from repeatedly restarting
-a deliberate hold. Waking consumes ordinary taps, while a continued deliberate hold
-may enter the menu. Releasing a consumed wake gesture resets recognition so it
-cannot become an unintended card-switch tap. The held pointer remains ignored by
-LVGL until released, preventing it from activating the newly opened menu.
+Version is centralized in `include/Version.h`. Packaging adds the source commit,
+versioned JS/CSS URLs, fresh/update manifests, firmware files and SHA256SUMS.
+CI runs host and browser checks, builds, validates packaging and deploys Pages.
+See [release verification](RELEASE-3.0.0.md) for measured results and limits.

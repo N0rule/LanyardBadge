@@ -1,5 +1,6 @@
 #include "Ui.h"
 #include "../core/CachedReader.h"
+#include "../core/Console.h"
 #include "Board.h"
 #include <algorithm>
 #include <esp_heap_caps.h>
@@ -54,7 +55,7 @@ bool Ui::begin() {
         return false;
     lv_init();
     lv_tick_set_cb([] { return millis(); });
-    lv_log_register_print_cb([](lv_log_level_t, const char *msg) { Serial.print(msg); });
+    lv_log_register_print_cb([](lv_log_level_t, const char *msg) { Console::print(msg); });
     lvDisplay_ = lv_display_create(board::width, board::height);
     if (!lvDisplay_)
         return false;
@@ -141,9 +142,9 @@ bool Ui::begin() {
         if (!strcmp(assets_.deck.cards[i].id, settings_.value.selected))
             selected_ = i;
     activity_.wake(millis());
-    if (!settings_.value.provisioned ||
+    if (!assets_.legacyCollection() && (!settings_.value.provisioned ||
         (assets_.deck.count && !strcmp(assets_.deck.cards[selected_].mode, "artwork") &&
-         !assets_.bitmapExists(assets_.deck.cards[selected_].image)))
+         !assets_.bitmapExists(assets_.deck.cards[selected_].image))))
         page(Page::Pairing);
     render();
     return true;
@@ -206,6 +207,8 @@ void Ui::back() {
     case Page::Menu:
         target = Page::Badge;
         break;
+    case Page::FactoryReset:
+    case Page::DeviceName:
     case Page::Advanced:
     case Page::Info:
         target = Page::Settings;
@@ -235,6 +238,11 @@ void Ui::header(const char *title) {
     lv_obj_center(icon);
 }
 void Ui::renderBadge(lv_obj_t *root) {
+    if (assets_.legacyCollection()) {
+        label(root, "Legacy collection", 12, 60, 216, 40, font(20), ink());
+        label(root, "Stored files are preserved.\nHold the screen, then open\nSettings > Factory reset\nto start an artwork collection.", 12, 110, 216, 140, font(14), ink());
+        return;
+    }
     if (!assets_.deck.count) {
         lv_obj_set_style_bg_color(root, lv_color_hex(0xf1f3f5), 0);
         return;
@@ -250,83 +258,6 @@ void Ui::renderBadge(lv_obj_t *root) {
         lv_image_set_src(im, path.c_str());
         lv_obj_set_pos(im, 0, 0);
         lv_obj_remove_flag(im, LV_OBJ_FLAG_CLICKABLE);
-    }
-    if (!strcmp(c.mode, "profile")) {
-        if (!image) {
-            auto *top = lv_obj_create(root);
-            plain(top);
-            lv_obj_set_size(top, 240, 112);
-            lv_obj_set_style_bg_opa(top, LV_OPA_COVER, 0);
-            lv_obj_set_style_bg_color(top, lv_color_hex(c.accent), 0);
-            auto *av = lv_obj_create(root);
-            plain(av);
-            lv_obj_set_pos(av, 20, 20);
-            lv_obj_set_size(av, 72, 72);
-            lv_obj_set_style_radius(av, 36, 0);
-            lv_obj_set_style_bg_color(av, lv_color_hex(c.background), 0);
-            lv_obj_set_style_bg_opa(av, LV_OPA_COVER, 0);
-            char initial[2] = {c.name[0] ? c.name[0] : '?', 0};
-            auto *l = label(av, initial, 0, 0, 72, 36, font(28), c.foreground);
-            lv_obj_center(l);
-            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-        }
-        label(root, "Say hello.", 110, 44, 118, 32, font(20), 0xffffff);
-        auto *lower = lv_obj_create(root);
-        plain(lower);
-        lv_obj_set_pos(lower, 0, 112);
-        lv_obj_set_size(lower, 240, 208);
-        lv_obj_set_style_bg_opa(lower, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(lower, lv_color_hex(c.background), 0);
-        label(root, c.name, 20, 128, 200, 38, font(28), c.foreground);
-        label(root, c.description, 20, 174, 200, 40, font(14), c.foreground);
-        if (c.url[0]) {
-            // 106px white square, 86px QR, >=8px quiet zone; URL cap keeps >=2px modules.
-            auto *quiet = lv_obj_create(root);
-            plain(quiet);
-            lv_obj_set_pos(quiet, 20, 218);
-            lv_obj_set_size(quiet, 106, 102);
-            lv_obj_set_style_bg_color(quiet, lv_color_white(), 0);
-            lv_obj_set_style_bg_opa(quiet, LV_OPA_COVER, 0);
-            auto *qr = lv_qrcode_create(quiet);
-            lv_qrcode_set_size(qr, 86);
-            lv_obj_set_pos(qr, 10, 8);
-            lv_qrcode_set_dark_color(qr, lv_color_black());
-            lv_qrcode_set_light_color(qr, lv_color_white());
-            if (lv_qrcode_update(qr, c.url, strlen(c.url)) != LV_RESULT_OK)
-                Serial.println("QR encode failed");
-            label(root, "Let's\nconnect", 140, 238, 86, 54, font(20), c.foreground);
-        } else
-            label(root, "Made to be\ncarried with you.", 20, 244, 200, 54, font(20), c.foreground);
-    }
-    if (!strcmp(c.mode, "custom")) {
-        for (unsigned i = 0; i < c.shapeCount; ++i) {
-            auto &s = c.shapes[i];
-            auto *o = lv_obj_create(root);
-            plain(o);
-            lv_obj_set_pos(o, s.x, s.y);
-            lv_obj_set_size(o, s.w, s.h);
-            lv_obj_set_style_bg_color(o, lv_color_hex(s.color), 0);
-            lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
-            lv_obj_set_style_radius(o, s.radius, 0);
-        }
-        for (unsigned i = 0; i < c.textCount; ++i) {
-            auto &t = c.texts[i];
-            label(root, t.text, t.x, t.y, 240 - t.x, 320 - t.y, font(t.size), t.color);
-        }
-        if (c.url[0]) {
-            auto *quiet = lv_obj_create(root);
-            plain(quiet);
-            lv_obj_set_pos(quiet, 126, 214);
-            lv_obj_set_size(quiet, 106, 106);
-            lv_obj_set_style_bg_color(quiet, lv_color_white(), 0);
-            lv_obj_set_style_bg_opa(quiet, LV_OPA_COVER, 0);
-            auto *qr = lv_qrcode_create(quiet);
-            lv_qrcode_set_size(qr, 86);
-            lv_obj_set_pos(qr, 10, 10);
-            lv_qrcode_set_dark_color(qr, lv_color_black());
-            lv_qrcode_set_light_color(qr, lv_color_white());
-            lv_qrcode_update(qr, c.url, strlen(c.url));
-        }
     }
     if (c.image[0] && !image)
         label(root, "Background unavailable", 8, 300, 224, 20, font(14), c.foreground);
@@ -431,7 +362,7 @@ void Ui::animate() {
 #if defined(BADGE_DIAGNOSTICS) && BADGE_DIAGNOSTICS
 void Ui::benchmark(bool streaming) {
     if (!assets_.deck.count) {
-        Serial.println("BENCH requires saved artwork");
+        Console::println("BENCH requires saved artwork");
         return;
     }
     bool old = streaming_;
@@ -450,7 +381,7 @@ void Ui::benchmark(bool streaming) {
         maximum = std::max(maximum, elapsed);
         yield();
     }
-    Serial.printf(
+    Console::printf(
         "BENCH mode=%s frames=10 meanUs=%lu maxUs=%lu flushUs=%lu heapBefore=%u heapAfter=%u\n",
         streaming ? "stream" : "lvgl", (unsigned long)(sum / 10), (unsigned long)maximum,
         (unsigned long)(flushUs_ - flushStart), unsigned(heap), unsigned(ESP.getFreeHeap()));
@@ -476,8 +407,8 @@ void Ui::benchmarkMenu() {
         maximum = std::max(maximum, elapsed);
     }
     settings_.value.brightness = brightness;
-    Serial.printf("BENCH mode=menu fullUs=%lu partialMeanUs=%lu partialMaxUs=%lu\n",
-                  (unsigned long)full, (unsigned long)(total / 10), (unsigned long)maximum);
+    Console::printf("BENCH mode=menu fullUs=%lu partialMeanUs=%lu partialMaxUs=%lu\n",
+                    (unsigned long)full, (unsigned long)(total / 10), (unsigned long)maximum);
     page(previous);
 }
 #endif
@@ -631,18 +562,19 @@ void Ui::render() {
         lv_qrcode_set_dark_color(qr, lv_color_black());
         lv_qrcode_set_light_color(qr, lv_color_white());
         lv_qrcode_update(qr, url.c_str(), url.length());
-        String manualKey = String("Code: ") + settings_.pairingCode();
-        auto *key = label(root, manualKey.c_str(), 8, 294, 224, 26, font(20), ink());
+        auto *key = label(root, "USB or Bluetooth", 8, 294, 224, 26, font(14), ink());
         lv_obj_set_style_text_align(key, LV_TEXT_ALIGN_CENTER, 0);
         return;
     }
-    header(page_ == Page::Menu        ? "Your badge"
-           : page_ == Page::Gallery   ? "Gallery"
-           : page_ == Page::Display   ? "Display"
-           : page_ == Page::Slideshow ? "Slideshow"
-           : page_ == Page::Settings  ? "Settings"
-           : page_ == Page::Advanced  ? "Advanced"
-                                      : "Device information");
+    header(page_ == Page::FactoryReset ? "Factory reset"
+           : page_ == Page::DeviceName ? "Device name"
+           : page_ == Page::Menu       ? "Your badge"
+           : page_ == Page::Gallery    ? "Gallery"
+           : page_ == Page::Display    ? "Display"
+           : page_ == Page::Slideshow  ? "Slideshow"
+           : page_ == Page::Settings   ? "Settings"
+           : page_ == Page::Advanced   ? "Advanced"
+                                       : "Device information");
     auto *list = lv_obj_create(root);
     plain(list);
     lv_obj_set_pos(list, 0, 54);
@@ -661,6 +593,20 @@ void Ui::render() {
         }
         return;
     }
+    if (page_ == Page::FactoryReset) {
+        label(list,
+              "Delete all artwork, settings and trusted editors? Release BOOT, then hold it for 3 "
+              "seconds to reset. Go back to cancel.",
+              0, 0, 208, 160, font(16), ink());
+        return;
+    }
+    if (page_ == Page::DeviceName) {
+        label(list, settings_.deviceName.c_str(), 0, 0, 208, 60, font(20), ink());
+        label(list, "Change this name in Device settings on the website.", 0, 0, 208, 80, font(16),
+              ink());
+        button(list, "Connect to editor", int(Command::Setup));
+        return;
+    }
     if (page_ == Page::Info) {
         String text = info ? info() : String("Starting...");
         auto *l = lv_label_create(list);
@@ -670,7 +616,6 @@ void Ui::render() {
         return;
     }
     if (page_ == Page::Advanced) {
-        button(list, "Calibrate touch", -1 - int(Page::Calibration));
         button(list, "Forget editors", -1 - int(Page::RePair));
         if (assets_.canProvision())
             button(list, "Set up storage", -1 - int(Page::Storage));
@@ -679,12 +624,15 @@ void Ui::render() {
     }
     if (page_ == Page::RePair) {
         label(list,
-              "Forget connected editors? A new code will be shown. Cards and settings stay saved.",
+              "Forget Bluetooth editors? Remove the old pairing in your system settings before "
+              "pairing again. Artwork stays saved.",
               0, 0, 208, 90, font(14), ink());
         button(list, "Forget editors", int(Command::RevokePairing));
         return;
     }
     if (page_ == Page::Settings) {
+        button(list, "Device name", -1 - int(Page::DeviceName));
+        button(list, "Factory reset", -1 - int(Page::FactoryReset));
         button(list, settings_.value.darkMode ? "Theme: dark" : "Theme: light",
                int(Command::Theme));
         button(list, "About this badge", -1 - int(Page::Info));
@@ -723,7 +671,7 @@ void Ui::nativePairing(uint32_t passkey) {
 }
 void Ui::page(Page p) {
     wake();
-    if (p == Page::Badge && !settings_.value.provisioned && !pairedOnce_)
+    if (p == Page::Badge && !assets_.legacyCollection() && !settings_.value.provisioned && !pairedOnce_)
         p = Page::Pairing;
     page_ = p;
     dirty_ = true;
@@ -745,7 +693,7 @@ void Ui::select(unsigned i) {
 }
 void Ui::calibrationTick() {
     if (millis() - calibrationStarted_ > 120000) {
-        Serial.println("Calibration timed out; previous mapping retained");
+        Console::println("Calibration timed out; previous mapping retained");
         page(settings_.value.calibration.valid ? Page::Menu : Page::Badge);
         return;
     }
@@ -780,7 +728,7 @@ void Ui::calibrationTick() {
                                ? Point{int16_t(239 - targets[i].x), int16_t(319 - targets[i].y)}
                                : targets[i];
         if (!calibrate(rawSamples_, canonical, candidate_)) {
-            Serial.println("Calibration points invalid; retry");
+            Console::println("Calibration points invalid; retry");
             page(Page::Calibration);
             return;
         }
@@ -788,15 +736,15 @@ void Ui::calibrationTick() {
     if (calibrationStep_ == 3) {
         Point p = candidate_.map(raw.x, raw.y, settings_.value.rotation);
         if (abs(p.x - targets[3].x) > 18 || abs(p.y - targets[3].y) > 18) {
-            Serial.println("Fourth-corner calibration check failed; retry");
+            Console::println("Fourth-corner calibration check failed; retry");
             page(Page::Calibration);
             return;
         }
         settings_.value.calibration = candidate_;
         bool saved = settings_.save();
         touch_.calibration = candidate_;
-        Serial.println(saved ? "Four-corner calibration validated and saved"
-                             : "Calibration active; NVS save failed");
+        Console::println(saved ? "Four-corner calibration validated and saved"
+                               : "Calibration active; NVS save failed");
         page(Page::Badge);
         return;
     }

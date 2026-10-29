@@ -1,165 +1,107 @@
-# LanyardBadge 2.0
+# LanyardBadge
 
-Artwork you can wear. Choose an image, position it in a portrait badge preview,
-and upload it over Bluetooth. No account, native app, Wi-Fi setup, SD card or PSRAM.
+Artwork you can wear. Turn a USB-powered ESP32 touchscreen into a personal artwork badge.
 
-**[Open the companion editor](https://n0rule.is-a.dev/LanyardBadge/)**
+Open the [editor](https://n0rule.is-a.dev/LanyardBadge/) to install firmware, connect,
+and upload still images or animated GIF cards.
 
-The current firmware is 2.3.4. It targets the 4 MB ESP32 CYD2USB with ST7789 and
-XPT2046 resistive touch. USB faces **down**, 240 × 320, portrait rotation 0.
+## Hardware
 
-## Use your badge
+The primary target is CYD2USB: classic ESP32, 4 MB flash, no PSRAM, a 240 × 320
+ST7789 display and XPT2046 resistive touchscreen. USB connectors are at the bottom.
+The CH340/CH341 adapter provides USB serial communication. The badge needs USB
+power; it has no battery. Wiring and display orientation are defined in
+[Board.h](include/Board.h).
 
-1. New blank boards start with the geometric **First light** artwork. Hold BOOT
-   for two seconds to show the editor QR, then scan it or open the website manually.
-   Calibration is optional. Existing collections are never replaced by the default.
-2. Choose **Connect your badge** in a supported secure Web Bluetooth browser.
-   On first connection, enter the fresh six-digit number displayed on the badge
-   into the browser’s native Bluetooth prompt. Reconnect reuses the saved OS bond.
-   A scanned QR supplies the separate editor access code and is immediately cleared
-   from the URL. Otherwise, enter the four-letter code below the badge’s QR.
-   The editor appears after authentication; empty cards start with a neutral gray preview.
-3. Choose artwork, rotate, fit/crop, zoom and drag it into position. The preview
-   and final upload share the same transformation. Upload the card, then wear it.
-4. Swipe the physical artwork screen to change cards; hold it for about half a
-   second to open the menu. A hold can continue directly after waking the screen.
-   Settings include brightness, slideshow and display timeout. Touch wakes a dark
-   screen, consuming the first press. Default timeout is two minutes; Never is
-   available.
+## Install and connect
 
-Chrome/Edge on supported desktop or Android configurations can use Web Bluetooth.
-iOS Safari is unsupported. Linux needs a running Bluetooth daemon and a pairing
-agent. Device discovery and pairing are real browser/OS prompts, not simulated
-connection states. USB firmware installation needs desktop Web Serial.
-Current firmware uses authenticated LE Secure Connections with a physical PIN;
-Windows pairing can complete directly from the browser, without Windows Settings
-or experimental flags. Helium on Windows was tested with the actual badge;
-Chrome/Edge and Android still need validation of this new security profile.
-Linux requires a working desktop pairing agent for its native prompt. Revoking
-editor access rotates the application code while retaining the OS bond.
-Older firmware uses Just Works pairing and remains supported by the editor,
-but upgrading through USB is recommended for reliable browser-first Windows pairing.
+Use Chrome or Edge on a desktop computer and a USB data cable. Open the editor,
+choose **Install firmware**, then choose a new installation or an application-only
+update. Close serial monitors and other badge tabs first. Updates preserve cards,
+settings and the board's touch mapping when using the supported flash layout.
 
-Calibration is optional under **Settings → Advanced**. Hold the physical BOOT
-button two seconds to reopen the editor QR, or six seconds for touch recovery.
-Revoke editor access under Advanced to replace a photographed/lost pairing key.
-Settings also offers a device dark/light theme, retained across restarts. Submenu
-arrows go back one level; the main menu's centered X returns to artwork. Release
-menus omit developer diagnostics and benchmark commands are compiled out unless
-`BADGE_DIAGNOSTICS=1` is explicitly enabled.
-Pair manually with the four-letter code on the connection screen. Remember badge
-is enabled by default; this browser then saves device access and tries to reconnect
-after refresh without another code. Disable it on a shared computer, or use
-**Forget badge** to remove saved browser access. Browser permission, the same site
-origin and a working Bluetooth service are required for automatic reconnect.
-Older profile/custom cards remain readable and displayable; new creation is
-artwork-only. The editor labels legacy cards and replaces their layout only when
-you explicitly choose artwork and upload.
+For USB editing, choose **Connect badge → Connect via USB** and grant the browser
+permission to use the USB serial port. Previously authorized ports can reconnect
+automatically. The badge identifies itself before the editor opens.
 
-## Build, preserve data, and flash
+For Bluetooth, hold the badge screen to open its menu, then choose **Connect to
+editor**. Scan the QR or open the website and choose Bluetooth. New editors have
+a two-minute enrollment window. Enter the six-digit PIN displayed on the badge
+when the operating system requests it. There is no separate application code.
+Previously bonded editors reconnect using their native authenticated bond.
 
-Use PlatformIO CLI. Dependencies are pinned in `platformio.ini`.
+The 3.0 editor requires Bluetooth protocol 3. Update older firmware through USB.
+Existing authenticated bonds are retained. Obsolete browser ownership credentials
+are discarded, and in-tab artwork drafts survive reconnection and identity migration.
+
+## Make a card
+
+Choose artwork, then drag, rotate, zoom or use fit/fill to position it inside the
+physical badge preview. **Upload card** saves it; **Show this card** selects it on
+the badge. Add, rename, reorder or delete cards from the collection. The badge
+supports up to ten cards.
+
+GIF files are prepared in the browser for bounded-memory animation playback.
+Use the animation controls to preview motion. The device supports animations up
+to 1 MiB; large source GIFs may need fewer frames or a smaller crop. Transfers show
+actual progress. Canceling or losing a connection keeps the original draft in the
+current tab. Keep that tab open until your work is uploaded.
+
+## Settings
+
+**Device settings** controls brightness, screen timeout, slideshow and display
+theme. Website light/dark/system theme is independent of the device theme.
+Device names accept 1–24 printable ASCII characters, without leading or trailing
+spaces. Names persist across firmware updates. The badge's settings menu shows
+the name and links back to the editor to change it.
+
+To revoke Bluetooth access, use **Settings → Advanced → Forget editors** on the
+badge. Remove its old pairing in your operating system before enrolling again.
+This keeps artwork and settings.
+
+**Factory reset** is available in the badge settings and in the website's
+**Device settings → Advanced** section. It deletes artwork, settings, names and
+Bluetooth bonds. The website first asks for confirmation; the badge then requires
+you to release BOOT and hold it for three seconds. Go back on the badge to cancel,
+or allow the confirmation screen to expire. Firmware and the bootloader remain.
+An interrupted reset resumes at the next boot.
+
+## Compatibility and troubleshooting
+
+- Desktop Chrome/Edge with Web Serial: USB editing and installation.
+- Supported desktop/Android Chromium browsers with Web Bluetooth: wireless editing.
+- iOS Safari does not provide the required Web Bluetooth or Web Serial APIs.
+- Browser permissions require HTTPS (or localhost for development). USB permission
+  is never granted automatically on a first visit.
+- Linux: check serial-device access and close programs using `/dev/ttyUSB0`.
+- Windows: use a data cable and ensure the CH340 driver is installed.
+- Connection lost: reconnect from the same tab; drafts stay associated with the
+  stable badge identity, even when switching USB/Bluetooth or changing its name.
+- Storage full: clean unused artwork from Advanced settings, or delete a card you
+  no longer need. The cleanup preserves assets referenced by the recovery manifest.
+- Touch recovery: hold BOOT for six seconds to access the internal recovery wizard.
+  Calibration is not part of everyday settings.
+
+## Development
 
 ```sh
 pio run -e cyd2usb
-pio run -e cyd2usb -t upload --upload-port /dev/ttyUSB0
-python scripts/device.py status
-```
-
-Close all serial monitors and BLE test clients before uploading. Opening the
-CH340 port can reset the board even when a diagnostic tool does not request reset;
-keep one serial connection open when collecting concurrent BLE diagnostics.
-
-The partition layout preserves the connected 2.1.0 device: a 2 MiB application at
-`0x10000`, LittleFS at `0x210000` for `0x1f0000` bytes. Actual padded firmware size
-is checked after build and before upload. The guard also removes Arduino’s unused
-OTA stub, rejects writes into NVS/PHY/artwork, and validates the compiled partition
-table. Ordinary updates write no filesystem
-image. Settings migrate to a separate versioned NVS key without deleting v2.
-
-**Back up existing devices before migration.** Other firmware/layouts, including
-the intermediate 2.5 MiB app layout, need an explicit offline migration. Do not
-use a data-preserving update manifest on an incompatible partition table.
-
-```sh
-mkdir -p backups
-esptool --port /dev/ttyUSB0 --baud 921600 read-flash 0 0x400000 backups/device-4mb.bin
-sha256sum backups/device-4mb.bin
-```
-
-Backups and `.secrets/` are ignored: flash can contain credentials. Never use
-`erase-flash` or `uploadfs` for ordinary updates. A mount failure preserves data;
-only a verified entirely erased asset partition is initialized automatically.
-
-## Editor and USB installation
-
-`web/` is a static app. All URLs work under `/LanyardBadge/`. Light, dark and System
-themes initialize before paint and preserve editing state. The enclosure has equal
-opposite bezels; theme changes never alter artwork colors. Position percentages
-represent allowed travel (positive right/down), not percentages of image pixels.
-
-The USB installer uses locally vendored **ESP Web Tools 10.4.0**, loaded on demand.
-Choose the ST7789 CYD2USB target. Fresh manifests include bootloader, partition
-table and application; update manifests include **only** the application. Erasure
-requires an explicit installer choice and destroys stored cards/settings. There
-is no OTA or BLE firmware installer.
-
-The GitHub Pages workflow runs host/browser tests, builds firmware and publishes
-per-commit binaries, manifests and SHA-256 sums. To package it locally:
-
-```sh
-npm ci --prefix tests
-python scripts/vendor_installer.py
-pio run -e cyd2usb
-python scripts/package_site.py
-python scripts/validate_site.py test-results/site
-```
-
-## Validation
-
-```sh
 bash scripts/test-host.sh
-npm ci --prefix tests
-npx --prefix tests playwright install chromium
-npm test --prefix tests
-python scripts/benchmark_device.py --switches 50
+cd tests
+npm ci
+npx playwright install chromium
+npm test
 ```
 
-The benchmark renders both old LVGL and optimized streaming paths on the same
-hardware; it changes selection temporarily and restores the initial selection.
-It also exercises sleep/wake state and restart persistence. Physical tap-to-wake,
-colors and touch accuracy still need an observer.
+The firmware version is centralized in [Version.h](include/Version.h). Build and
+package with `python3 scripts/package_site.py`, then validate with
+`python3 scripts/validate_site.py test-results/site`. Packaging checks the actual
+partition layout and firmware hashes. No filesystem image is flashed by updates.
 
-A real radio test is available with Bleak installed in a virtual environment:
+`scripts/device.py status` and `scripts/device.py cards` provide bounded USB
+support diagnostics without the old arbitrary serial-command interpreter.
+See [3.0.0 release verification](docs/RELEASE-3.0.0.md), [USB protocol](docs/USB-PROTOCOL.md), [release work record](docs/RELEASE-PLAN.md)
+and [hardware checklist](docs/HARDWARE_CHECKLIST.md) for implementation and
+verification boundaries. A successful mock test is not evidence of a hardware test.
 
-```sh
-python scripts/test_ble.py --key-file .secrets/pairing-key
-```
-
-Supply the device-specific key through a private file, never a command argument,
-public log or commit. Browser tests simulate GATT peripherals and separately
-verify transform/export pixel error bounds; they do not establish a radio link.
-See [verification](docs/VERIFICATION.md) for actual results and remaining physical
-checks, [architecture](docs/ARCHITECTURE.md) for memory/storage tradeoffs, and
-[BLE protocol](docs/API.md) for transport details.
-
-The older `cyd`/ILI9341 environment is retained as a compatibility build target.
-Only CYD2USB/ST7789 has been connected and measured in this development session.
-
-The card editor keeps artwork at the center: choose a file, adjust it directly on
-the badge preview, then upload. Rotation and precise crop controls appear after
-choosing artwork. Uploads use a dedicated progress screen in the badge's saved
-light or dark theme, and only report completion after the card is safely saved.
-
-Animated GIFs are supported with current firmware: choose the GIF, adjust it like
-still artwork, then upload. The browser previews every frame and the badge plays
-compressed frame updates without a framebuffer. Input limits are 30 MB, 300 frames,
-30 seconds and a prepared asset size of 1 MiB; available storage can limit this
-further. Older badges need a data-preserving USB firmware update. See
-[GIF support and limits](docs/GIF.md).
-
-The editor caches validated artwork in the browser, so refreshes and reconnects
-reuse unchanged cards. It still authenticates and reads current card metadata.
-Images you upload are prepared and cached on the client. Firmware 2.3.4 also lets
-uncached previews yield to other Bluetooth controls; an initial uncached preview
-still requires a transfer. Clearing site data removes this disposable cache.
+Dependency licenses remain with the vendored installer and font assets.

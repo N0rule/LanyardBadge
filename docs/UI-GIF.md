@@ -1,3 +1,5 @@
+> Historical record for 2.x. See [3.0 release verification](RELEASE-3.0.0.md) for current behavior.
+
 # Preview alignment, GIF artwork and fresh-board artwork
 
 ## Changes

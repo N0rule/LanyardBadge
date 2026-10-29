@@ -78,18 +78,10 @@
     return out;
   }
   function validateCard(c) {
-    for (const [key, max] of Object.entries({ title: 48, name: 48, description: 96, url: 100 })) {
-      if (typeof c[key] !== 'string' || c[key].length > max || /[^\x20-\x7e\n]/.test(c[key]))
-        throw Error(key + ': use English letters, numbers and punctuation');
-    }
-    if (!c.title.trim()) throw Error('Give your card a title');
-    if (c.url && !/^https?:\/\/[^\s]+$/.test(c.url))
-      throw Error('QR link must begin with https:// or http:// and contain no spaces');
-    if (c.texts.length > 4 || c.shapes.length > 4)
-      throw Error('Use up to four text and four graphic elements');
-    for (const t of c.texts)
-      if (!t.text || t.text.length > 96 || /[^\x20-\x7e\n]/.test(t.text))
-        throw Error('Text elements need 1–96 supported characters');
+    if (typeof c.title !== 'string' || c.title.length > 48 || /[^\x20-\x7e\n]/.test(c.title))
+      throw Error('Title: use English letters, numbers and punctuation');
+    if (!c.title.trim()) throw Error('Give your artwork a title');
+    if (c.mode !== 'artwork') throw Error('Legacy cards require a confirmed factory reset');
   }
   globalThis.BadgeCodec = {
     validateArtwork(buffer) {

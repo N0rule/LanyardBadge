@@ -1,4 +1,5 @@
 #include "Settings.h"
+#include "../core/Console.h"
 #include <bootloader_random.h>
 #include <esp_random.h>
 #include <stddef.h>
@@ -25,26 +26,56 @@ bool validBase(const SettingsV2 &s) {
 } // namespace
 bool SettingsStore::begin() {
     if (!prefs_.begin("badge-v2", false)) {
-        // Keep recovery pairing device-specific even when NVS cannot be opened.
-        // These RAM-only credentials intentionally change after a restart.
-        randomKey(value.apPassword);
-        randomKey(value.pairingKey);
+        randomKey(cacheEpoch);
         return false;
     }
-    // Each schema retains its predecessor for recovery; never delete settings.
-    if (prefs_.getBytesLength("settings4") == sizeof(Settings)) {
+    String savedName = prefs_.getString("deviceName", "LanyardBadge");
+    if (validDeviceName(savedName.c_str()))
+        deviceName = savedName;
+    String epoch = prefs_.getString("cacheEpoch", "");
+    if (epoch.length() == 16)
+        strlcpy(cacheEpoch, epoch.c_str(), sizeof(cacheEpoch));
+    else {
+        randomKey(cacheEpoch);
+        prefs_.putString("cacheEpoch", cacheEpoch);
+    }
+    if (prefs_.getBytesLength("settings5") == sizeof(Settings)) {
         Settings saved;
-        prefs_.getBytes("settings4", &saved, sizeof(saved));
+        prefs_.getBytes("settings5", &saved, sizeof(saved));
         uint32_t crc = saved.crc;
         saved.crc = 0;
-        if (saved.version == 4 && crc == checksum(&saved, sizeof(saved)) && validBase(saved) &&
-            validScreenTimeout(saved.screenTimeout) && saved.pairingKey[16] == 0 &&
-            strlen(saved.pairingKey) == 16 && saved.darkMode <= 1) {
+        if (saved.version == 5 && crc == checksum(&saved, sizeof(saved)) && saved.brightness >= 5 &&
+            saved.brightness <= 100 && (saved.rotation == 0 || saved.rotation == 2) &&
+            saved.interval >= 5 && saved.interval <= 3600 &&
+            validScreenTimeout(saved.screenTimeout) && saved.darkMode <= 1 &&
+            validId(saved.selected) && validId(saved.defaultCard) && saved.calibration.sane()) {
             saved.crc = crc;
             value = saved;
             return true;
         }
-        Serial.println("Settings v4 invalid; trying preserved v3");
+    }
+    auto migrate = [&](const SettingsV2 &saved) {
+        value.interval = saved.interval;
+        value.brightness = saved.brightness;
+        value.rotation = saved.rotation;
+        value.autoplay = saved.autoplay;
+        memcpy(value.selected, saved.selected, 9);
+        memcpy(value.defaultCard, saved.defaultCard, 9);
+        value.calibration = saved.calibration;
+    };
+    if (prefs_.getBytesLength("settings4") == sizeof(SettingsV4)) {
+        SettingsV4 saved;
+        prefs_.getBytes("settings4", &saved, sizeof(saved));
+        uint32_t crc = saved.crc;
+        saved.crc = 0;
+        if (saved.version == 4 && crc == checksum(&saved, sizeof(saved)) && validBase(saved) &&
+            validScreenTimeout(saved.screenTimeout) && saved.darkMode <= 1) {
+            migrate(saved);
+            value.screenTimeout = saved.screenTimeout;
+            value.provisioned = saved.provisioned;
+            value.darkMode = saved.darkMode;
+            return save();
+        }
     }
     if (prefs_.getBytesLength("settings3") == sizeof(SettingsV3)) {
         SettingsV3 saved;
@@ -52,10 +83,10 @@ bool SettingsStore::begin() {
         uint32_t crc = saved.crc;
         saved.crc = 0;
         if (saved.version == 3 && crc == checksum(&saved, sizeof(saved)) && validBase(saved) &&
-            validScreenTimeout(saved.screenTimeout) && saved.pairingKey[16] == 0 &&
-            strlen(saved.pairingKey) == 16) {
-            static_cast<SettingsV3 &>(value) = saved;
-            Serial.println("Migrated settings v3; original retained");
+            validScreenTimeout(saved.screenTimeout)) {
+            migrate(saved);
+            value.screenTimeout = saved.screenTimeout;
+            value.provisioned = saved.provisioned;
             return save();
         }
     }
@@ -63,28 +94,21 @@ bool SettingsStore::begin() {
         SettingsV2 saved;
         prefs_.getBytes("settings", &saved, sizeof(saved));
         if (saved.version == 2 && saved.crc == checksum(&saved, offsetof(SettingsV2, crc)) &&
-            validBase(saved)) {
-            static_cast<SettingsV2 &>(value) = saved;
-            Serial.println("Migrated settings v2; original retained");
-        }
+            validBase(saved))
+            migrate(saved);
     }
-    if (!value.apPassword[0])
-        randomKey(value.apPassword);
-    randomKey(value.pairingKey);
     return save();
 }
+bool SettingsStore::rename(const String &name) {
+    if (!validDeviceName(name.c_str()) || prefs_.putString("deviceName", name) != name.length())
+        return false;
+    deviceName = name;
+    return true;
+}
 bool SettingsStore::save() {
-    value.version = 4;
+    value.version = 5;
     value.crc = 0;
     value.crc = checksum(&value, sizeof(value));
-    return prefs_.putBytes("settings4", &value, sizeof(value)) == sizeof(value);
-}
-bool SettingsStore::revokePairing() {
-    Settings before = value;
-    randomKey(value.pairingKey, true);
-    if (save())
-        return true;
-    value = before;
-    return false;
+    return prefs_.putBytes("settings5", &value, sizeof(value)) == sizeof(value);
 }
 } // namespace badge

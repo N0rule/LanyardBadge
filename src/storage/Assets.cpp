@@ -1,5 +1,5 @@
 #include "Assets.h"
-#include "../core/Welcome.h"
+#include "../core/Console.h"
 #include <esp_partition.h>
 #include <esp_random.h>
 #include <memory>
@@ -29,6 +29,13 @@ bool Assets::loadFile(const char *path, Deck &target) {
     doc.remove("crc");
     if (manifestCrc(doc) != crc)
         return false;
+    for (auto card : doc["cards"].as<JsonArrayConst>()) {
+        const char *mode = card["mode"] | "";
+        if (!strcmp(mode, "profile") || !strcmp(mode, "custom")) {
+            legacy_ = true;
+            return false;
+        }
+    }
     String error;
     return deckFromJson(doc.as<JsonVariantConst>(), target, error);
 }
@@ -36,18 +43,18 @@ bool Assets::begin() {
     ready_ = LittleFS.begin(false, "/littlefs", 10, "assets");
     defaults(deck);
     if (!ready_) {
-        Serial.println("LittleFS unavailable; not auto-formatting. Use storage setup.");
+        Console::println("LittleFS unavailable; not auto-formatting. Use storage setup.");
         return false;
     }
     if (!loadFile("/cards.json", deck)) {
-        if (loadFile("/cards.bak", deck)) {
-            Serial.println("Recovered backup card database");
+        if (!legacy_ && loadFile("/cards.bak", deck)) {
+            Console::println("Recovered backup card database");
             LittleFS.remove("/cards.json");
             if (!LittleFS.rename("/cards.bak", "/cards.json"))
-                Serial.println("Could not restore backup filename");
+                Console::println("Could not restore backup filename");
         } else {
             defaults(deck);
-            Serial.println("No saved artwork collection; starting empty");
+            Console::println("No saved artwork collection; starting empty");
         }
     }
     // Never adopt an interrupted upload or an uncommitted manifest.
@@ -72,60 +79,10 @@ bool Assets::provision() {
                 return false;
         yield();
     }
-    return LittleFS.format() && begin() && seedWelcome();
+    return LittleFS.format() && begin();
 }
 bool Assets::isAnimation(const char *id) const {
     return ready_ && validId(id) && LittleFS.exists(String("/img-") + id + ".lba");
-}
-bool Assets::seedWelcome() {
-    // Called only after provision verified every byte of the storage partition was 0xff.
-    // Existing filesystems, intentionally empty decks and recovery generations never enter here.
-    String error, id;
-    if (!beginUpload(error))
-        return false;
-    uint8_t header[66]{};
-    auto put32 = [&](unsigned at, uint32_t value) {
-        for (unsigned i = 0; i < 4; ++i)
-            header[at + i] = uint8_t(value >> (8 * i));
-    };
-    header[0] = 'B';
-    header[1] = 'M';
-    put32(2, bitmapBytes);
-    put32(10, 66);
-    put32(14, 40);
-    put32(18, 240);
-    put32(22, 320);
-    header[26] = 1;
-    header[28] = 16;
-    put32(30, 3);
-    put32(34, 153600);
-    put32(54, 0xf800);
-    put32(58, 0x07e0);
-    put32(62, 0x001f);
-    bool ok = append(header, sizeof(header));
-    uint8_t row[480];
-    for (int y = 319; ok && y >= 0; --y) {
-        for (int x = 0; x < 240; ++x) {
-            uint16_t pixel = welcomePixel(x, y);
-            row[x * 2] = pixel;
-            row[x * 2 + 1] = pixel >> 8;
-        }
-        ok = append(row, sizeof(row));
-        yield();
-    }
-    if (!ok || !finishUpload(id, error)) {
-        abortUpload();
-        return false;
-    }
-    staging = Deck{};
-    staging.count = 1;
-    auto &c = staging.cards[0];
-    strlcpy(c.id, "00000001", sizeof(c.id));
-    strlcpy(c.title, "First light", sizeof(c.title));
-    strlcpy(c.mode, "artwork", sizeof(c.mode));
-    strlcpy(c.image, id.c_str(), sizeof(c.image));
-    c.background = 0xf5efdf;
-    return commit(error);
 }
 String Assets::imagePath(const char *id) const {
     return String("/img-") + id + (isAnimation(id) ? ".lba" : ".bmp");
@@ -147,6 +104,10 @@ bool Assets::bitmapExists(const char *id) const {
                                  : validBitmap(header, n, f.size()));
 }
 bool Assets::commit(String &error) {
+    if (legacy_) {
+        error = "Legacy collection preserved. Factory reset requires confirmation on the badge.";
+        return false;
+    }
     if (!ready_) {
         error = "Set up storage on the device first";
         return false;
@@ -197,6 +158,10 @@ bool Assets::commit(String &error) {
 }
 bool Assets::beginUpload(String &error, uint32_t bytes, bool animation) {
     abortUpload();
+    if (legacy_) {
+        error = "Legacy collection preserved. Factory reset requires confirmation on the badge.";
+        return false;
+    }
     if (!ready_) {
         error = "Set up storage on the device first";
         return false;
@@ -290,10 +255,16 @@ bool Assets::imageUsed(const char *id, const Deck &d) const {
     return false;
 }
 unsigned Assets::collectGarbage() {
+    if (legacy_)
+        return 0;
     if (!ready_)
         return 0;
     // Preserve both generations so restoring the manifest never loses its backgrounds.
     bool backup = loadFile("/cards.bak", staging);
+    if (legacy_) {
+        legacy_ = false; // Only the historical generation is legacy; preserve every asset.
+        return 0;
+    }
     unsigned count = 0;
     auto root = LittleFS.open("/");
     auto f = root.openNextFile();

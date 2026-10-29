@@ -1,3 +1,5 @@
+> Historical record for 2.x. See [3.0 release verification](RELEASE-3.0.0.md) for current behavior.
+
 # 2.3.4 connection and draft recovery
 
 Current result: browser-first PIN pairing and bonded reconnect were verified on

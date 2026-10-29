@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real BLE protocol validation. Read the device key from an ignored private file."""
+"""Real BLE protocol validation using native authenticated bonding."""
 
 import argparse, asyncio, json, struct, time, copy
 from pathlib import Path
@@ -9,8 +9,8 @@ SERVICE = "f40d1000-6f15-4d56-b6d4-17c92e648a10"
 RX = SERVICE.replace("1000-", "1001-")
 TX = SERVICE.replace("1000-", "1002-")
 p = argparse.ArgumentParser(description=__doc__)
-p.add_argument("--key-file", type=Path, required=True)
 p.add_argument("--output", type=Path, default=Path("test-results/ble-hardware.json"))
+p.add_argument("--read-only", action="store_true", help="Read status and artwork without uploading or changing cards")
 args = p.parse_args()
 
 
@@ -55,7 +55,8 @@ class Protocol:
         print("BLE request", path, flush=True)
         if not self.initialized:
             hello = await self.client.read_gatt_char(TX)
-            if hello[0] >= 2:
+            assert hello[0] == 3, "Update badge firmware to protocol 3"
+            if hello[0] == 3:
                 await self.ack(6, 0)
             self.initialized = True
         self.seq = (self.seq + 1) & 65535
@@ -115,24 +116,35 @@ async def main():
     async with BleakClient(device, timeout=15, pair=True) as client:
         print("GATT connected", flush=True)
         proto = Protocol(client)
+        hello = await client.read_gatt_char(TX)
+        assert hello[0] == 3
         await client.start_notify(TX, proto.notified)
         pair = await proto.request(
-            "/api/pair", {"password": args.key_file.read_text().strip()}
+            "/api/pair", {}
         )
         proto.token = pair["token"]
-        report["checks"].append("Authenticated device-specific key")
+        report["checks"].append("Native authenticated bond authorized session")
         before = await proto.request("/api/status")
         deck = await proto.request("/api/cards")
         report["before"] = before
+        read_started = time.monotonic()
         original = await proto.request("/api/image?id=" + deck["cards"][0]["image"])
-        assert len(original) == 153666
+        assert len(original) == before["artworkSizes"][deck["cards"][0]["image"]]
+        report["readSeconds"] = round(time.monotonic() - read_started, 3)
+        if args.read_only:
+            import hashlib
+            report["artworkSHA256"] = hashlib.sha256(original).hexdigest()
+            report["checks"].append("Full existing artwork readback; no writes")
+            args.output.write_text(json.dumps(report, indent=2) + "\n")
+            print("PASS: native BLE session and complete artwork readback")
+            return
         start = time.monotonic()
-        uploaded = await proto.request("/api/assets", original, raw=True)
+        uploaded = await proto.request("/api/animations" if original[:4] == b"LBA1" else "/api/assets", original, raw=True)
         report["uploadSeconds"] = round(time.monotonic() - start, 3)
         downloaded = await proto.request("/api/image?id=" + uploaded["id"])
         assert downloaded == original
         report["checks"].append(
-            "Full 153666-byte upload and download with byte comparison"
+            "Full artwork upload and download with byte comparison"
         )
         original_deck = copy.deepcopy(deck)
         test_card = copy.deepcopy(deck["cards"][0])
@@ -167,7 +179,7 @@ async def main():
         header = json.dumps(
             dict(
                 method="POST",
-                path="/api/assets",
+                path="/api/animations" if original[:4] == b"LBA1" else "/api/assets",
                 token=proto.token,
                 length=len(original),
             )
@@ -178,9 +190,11 @@ async def main():
         await client.disconnect()
     async with BleakClient(device, timeout=15, pair=True) as client:
         proto = Protocol(client)
+        hello = await client.read_gatt_char(TX)
+        assert hello[0] == 3
         await client.start_notify(TX, proto.notified)
         pair = await proto.request(
-            "/api/pair", {"password": args.key_file.read_text().strip()}
+            "/api/pair", {}
         )
         proto.token = pair["token"]
         recovered = await proto.request("/api/status")

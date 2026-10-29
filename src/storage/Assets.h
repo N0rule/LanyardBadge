@@ -14,12 +14,13 @@ class Assets {
     bool failed_ = false;
     bool loadFile(const char *, Deck &);
     bool imageUsed(const char *, const Deck &) const;
-    bool seedWelcome();
+    bool legacy_ = false;
 
   public:
     Deck deck, staging;
     bool begin();
     bool provision();
+    bool legacyCollection() const { return legacy_; }
     bool ready() const { return ready_; }
     bool canProvision() const {
         return !ready_ || (!deck.revision && !LittleFS.exists("/cards.json") &&

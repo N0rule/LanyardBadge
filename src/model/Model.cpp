@@ -30,136 +30,38 @@ bool color(JsonObjectConst o, const char *key, uint32_t &v, String &err) {
     v = o[key];
     return true;
 }
-bool number(JsonObjectConst o, const char *key, int lo, int hi, int &n, String &err) {
-    if (!o[key].is<int>()) {
-        err = String("Invalid number: ") + key;
-        return false;
-    }
-    n = o[key];
-    if (n < lo || n > hi) {
-        err = String("Out of range: ") + key;
-        return false;
-    }
-    return true;
-}
 } // namespace
 void cardToJson(const Card &c, JsonObject o) {
     o["id"] = c.id;
     o["title"] = c.title;
     o["mode"] = c.mode;
     o["image"] = c.image;
-    o["name"] = c.name;
-    o["description"] = c.description;
-    o["url"] = c.url;
     o["background"] = c.background;
+    // Empty compatibility fields keep existing artwork workspaces readable.
+    o["name"] = "";
+    o["description"] = "";
+    o["url"] = "";
     o["foreground"] = c.foreground;
-    o["accent"] = c.accent;
-    auto texts = o["texts"].to<JsonArray>();
-    for (unsigned i = 0; i < c.textCount; ++i) {
-        auto t = texts.add<JsonObject>();
-        auto &e = c.texts[i];
-        t["text"] = e.text;
-        t["x"] = e.x;
-        t["y"] = e.y;
-        t["size"] = e.size;
-        t["color"] = e.color;
-    }
-    auto shapes = o["shapes"].to<JsonArray>();
-    for (unsigned i = 0; i < c.shapeCount; ++i) {
-        auto t = shapes.add<JsonObject>();
-        auto &e = c.shapes[i];
-        t["x"] = e.x;
-        t["y"] = e.y;
-        t["w"] = e.w;
-        t["h"] = e.h;
-        t["radius"] = e.radius;
-        t["color"] = e.color;
-    }
+    o["accent"] = 0x3659d9;
+    o["texts"].to<JsonArray>();
+    o["shapes"].to<JsonArray>();
 }
+
 bool cardFromJson(JsonObjectConst o, Card &c, String &err) {
     c = Card{};
     if (!text(o, "id", c.id, sizeof(c.id), true, err) || !validId(c.id) ||
         !text(o, "title", c.title, sizeof(c.title), true, err) ||
         !text(o, "mode", c.mode, sizeof(c.mode), true, err) ||
         !text(o, "image", c.image, sizeof(c.image), false, err) ||
-        !text(o, "name", c.name, sizeof(c.name), false, err) ||
-        !text(o, "description", c.description, sizeof(c.description), false, err) ||
-        !text(o, "url", c.url, sizeof(c.url), false, err) ||
-        !color(o, "background", c.background, err) || !color(o, "foreground", c.foreground, err) ||
-        !color(o, "accent", c.accent, err))
+        !color(o, "background", c.background, err))
         return false;
-    if (strcmp(c.mode, "profile") && strcmp(c.mode, "artwork") && strcmp(c.mode, "custom")) {
-        err = "Unknown card mode";
+    if (strcmp(c.mode, "artwork")) {
+        err = "Only image and GIF artwork cards are supported";
         return false;
     }
     if (c.image[0] && !validId(c.image)) {
         err = "Invalid image ID";
         return false;
-    }
-    if (c.url[0] && strncmp(c.url, "https://", 8) && strncmp(c.url, "http://", 7)) {
-        err = "QR link must begin with https:// or http://";
-        return false;
-    }
-    if (c.url[0]) {
-        unsigned start = !strncmp(c.url, "https://", 8) ? 8 : 7;
-        if (strlen(c.url) <= start || c.url[start] == '/') {
-            err = "QR link needs a host name";
-            return false;
-        }
-        for (const char *p = c.url; *p; ++p)
-            if (*p < 33 || *p > 126) {
-                err = "QR links cannot contain whitespace";
-                return false;
-            }
-    }
-    auto texts = o["texts"].as<JsonArrayConst>();
-    auto shapes = o["shapes"].as<JsonArrayConst>();
-    if (!o["texts"].is<JsonArrayConst>() || !o["shapes"].is<JsonArrayConst>() ||
-        texts.size() > maxElements || shapes.size() > maxElements) {
-        err = "Use at most four text and four shape elements";
-        return false;
-    }
-    for (auto t : texts) {
-        if (!t.is<JsonObjectConst>()) {
-            err = "Invalid text element";
-            return false;
-        }
-        auto v = t.as<JsonObjectConst>();
-        auto &e = c.texts[c.textCount++];
-        int x, y, size;
-        if (!text(v, "text", e.text, sizeof(e.text), true, err) ||
-            !number(v, "x", 0, 220, x, err) || !number(v, "y", 0, 300, y, err) ||
-            !number(v, "size", 14, 28, size, err) || !color(v, "color", e.color, err))
-            return false;
-        if (size != 14 && size != 20 && size != 28) {
-            err = "Text size must be 14, 20 or 28";
-            return false;
-        }
-        e.x = x;
-        e.y = y;
-        e.size = size;
-    }
-    for (auto t : shapes) {
-        if (!t.is<JsonObjectConst>()) {
-            err = "Invalid shape element";
-            return false;
-        }
-        auto v = t.as<JsonObjectConst>();
-        auto &e = c.shapes[c.shapeCount++];
-        int x, y, w, h, r;
-        if (!number(v, "x", 0, 239, x, err) || !number(v, "y", 0, 319, y, err) ||
-            !number(v, "w", 1, 240, w, err) || !number(v, "h", 1, 320, h, err) ||
-            !number(v, "radius", 0, 120, r, err) || !color(v, "color", e.color, err))
-            return false;
-        if (x + w > 240 || y + h > 320) {
-            err = "Shape extends beyond badge";
-            return false;
-        }
-        e.x = x;
-        e.y = y;
-        e.w = w;
-        e.h = h;
-        e.radius = r;
     }
     return true;
 }

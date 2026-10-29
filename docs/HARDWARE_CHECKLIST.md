@@ -1,6 +1,6 @@
 # Physical acceptance checklist
 
-Automated and serial measurements are recorded in VERIFICATION.md. Check these
+Automated and serial measurements are recorded in RELEASE-3.0.0.md. Check these
 on the actual 240 × 320 ST7789 with USB connectors at the bottom:
 
 - [ ] Artwork upright, fills the screen, red/green/blue channels look correct.
@@ -21,3 +21,13 @@ Fresh-install formatting must only be tested on an entirely blank asset partitio
 Do not erase a populated device merely to check first-boot onboarding. Deliberate
 power cuts/corruption require an explicit backed-up test setup and are not claimed
 by ordinary restart tests.
+
+Release 3 physical acceptance still to exercise on a spare or explicitly approved
+resettable badge:
+
+- [ ] Windows Chrome/Edge and Linux Chromium native enrollment, bonded reconnect, revocation.
+- [ ] Real Web Serial permission, cable removal, cancel and installer return.
+- [ ] Rename appears in OS discovery after clearing any OS display-name cache.
+- [ ] Factory reset physically confirmed, all artwork/settings/bonds removed, firmware retained.
+- [ ] Power interrupted during each reset stage safely completes at next boot.
+- [ ] Legacy profile/custom collection remains protected until acknowledged reset.

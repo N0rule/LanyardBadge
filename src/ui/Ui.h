@@ -38,7 +38,9 @@ enum class Page {
     Settings,
     Advanced,
     RePair,
-    BluetoothPairing
+    BluetoothPairing,
+    FactoryReset,
+    DeviceName
 };
 class Ui {
     Display &display_;

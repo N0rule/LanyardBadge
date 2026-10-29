@@ -1,4 +1,5 @@
 #include "Network.h"
+#include "Version.h"
 #include <esp_arduino_version.h>
 #include <esp_heap_caps.h>
 #include <esp_random.h>
@@ -62,51 +63,20 @@ int Network::localRequest(const String &method, const String &path, const String
 
     return localCode_;
 }
-void Network::pair() {
-    if (failures_ >= 5 && millis() - blockedAt_ < 30000) {
-        error(429, "Wait 30 seconds before pairing again");
-        return;
-    }
-    JsonDocument d;
-    if (deserializeJson(d, body_) || !d["password"].is<const char *>()) {
-        error(400, "Enter the four-letter code on your badge");
-        return;
-    }
-    String password = d["password"].as<String>();
-    bool credential = equalSecret(password, settings_.value.pairingKey);
-    password.toUpperCase();
-    bool code = password.length() == 4 && equalSecret(password, settings_.pairingCode().c_str());
-    if (!credential && code && (!pairingCodeAllowed || !pairingCodeAllowed())) {
-        error(403, "Open Connect to editor on your badge, then enter its code");
-        return;
-    }
-    if (!credential && !code) {
-        ++failures_;
-        blockedAt_ = millis();
-        error(401, "Code does not match the badge");
-        return;
-    }
-    failures_ = 0;
+int Network::trustedSession(String &response) {
     for (unsigned i = 0; i < 32; ++i)
         snprintf(token_ + i * 2, 3, "%02x", unsigned(esp_random() & 255));
-    tokenUsed_ = millis();
-    opened_ = millis();
+    tokenUsed_ = opened_ = millis();
     JsonDocument out;
     out["token"] = token_;
-    // Only sent over authenticated encrypted GATT, never in diagnostics. A
-    // remembered browser uses this instead of repeatedly guessing a short code.
-    out["credential"] = settings_.value.pairingKey;
-    // Opt-in snapshot avoids two more BLE exchanges on every browser connection.
-    // Older clients and native tools keep the original lightweight pair response.
-    if (d["includeSnapshot"] == true) {
-        auto snapshot = out["snapshot"].to<JsonObject>();
-        deckToJson(assets_.deck, snapshot["deck"].to<JsonObject>());
-        auto info = statusDocument();
-        snapshot["status"] = info.as<JsonVariantConst>();
-    }
-    json(200, out);
+    auto snapshot = out["snapshot"].to<JsonObject>();
+    deckToJson(assets_.deck, snapshot["deck"].to<JsonObject>());
+    auto info = statusDocument();
+    snapshot["status"] = info.as<JsonVariantConst>();
+    serializeJson(out, response);
     if (paired)
         paired();
+    return 200;
 }
 void Network::cards() {
     const bool uploadingCard = pendingCardUpload();
@@ -197,11 +167,36 @@ void Network::settings() {
     status();
 }
 void Network::dispatch(const String &path) {
-    if (path == "/api/pair")
-        pair();
-    else if (!authorize())
+    if (!authorize())
         return;
-    else if (path == "/api/cards")
+    else if (path == "/api/reset") {
+        if (pendingCardUpload()) {
+            error(409, "Finish the upload before resetting");
+            return;
+        }
+        if (!requestReset) {
+            error(503, "Reset unavailable");
+            return;
+        }
+        requestReset();
+        JsonDocument out;
+        out["confirmation"] = "Hold BOOT on the badge for 3 seconds";
+        json(202, out);
+    } else if (path == "/api/name") {
+        JsonDocument d;
+        if (deserializeJson(d, body_) || !d["name"].is<const char *>() ||
+            !validDeviceName(d["name"])) {
+            error(422, "Use 1–24 printable ASCII characters without leading or trailing spaces");
+            return;
+        }
+        if (!settings_.rename(d["name"].as<String>())) {
+            error(500, "Could not save device name");
+            return;
+        }
+        if (settingsChanged)
+            settingsChanged();
+        status();
+    } else if (path == "/api/cards")
         cards();
     else if (path == "/api/settings")
         settings();
@@ -230,12 +225,6 @@ void Network::dispatch(const String &path) {
         JsonDocument out;
         out["ok"] = true;
         json(200, out);
-    } else if (path == "/api/calibrate") {
-        if (calibrateTouch)
-            calibrateTouch();
-        JsonDocument out;
-        out["ok"] = true;
-        json(200, out);
     } else if (path == "/api/gc") {
         JsonDocument out;
         out["removed"] = assets_.collectGarbage();
@@ -245,7 +234,14 @@ void Network::dispatch(const String &path) {
 }
 JsonDocument Network::statusDocument() const {
     JsonDocument d;
-    d["firmware"] = "2.3.4";
+    d["firmware"] = BADGE_VERSION;
+    char identity[17];
+    snprintf(identity, sizeof(identity), "%016llx", (unsigned long long)ESP.getEfuseMac());
+    d["deviceId"] = identity;
+    d["cacheEpoch"] = settings_.cacheEpoch;
+    d["serialProtocol"] = 1;
+    d["deviceName"] = settings_.deviceName;
+    d["factoryReset"] = true;
     d["imageReadMax"] = imageReadMax;
     d["animationFormat"] = 1;
     d["maxAnimationBytes"] = maxAnimationBytes;
@@ -266,6 +262,7 @@ JsonDocument Network::statusDocument() const {
     d["psram"] = ESP.getPsramSize();
     d["flash"] = ESP.getFlashChipSize();
     d["uptime"] = millis() / 1000;
+    d["legacyCollection"] = assets_.legacyCollection();
     d["storageReady"] = assets_.ready();
     d["storageUsed"] = assets_.used();
     d["storageTotal"] = assets_.total();
@@ -296,7 +293,7 @@ void Network::status() {
     json(200, d);
 }
 String Network::summary() const {
-    return String("Lanyard Badge\nFirmware 2.3.4") + "\nStorage: " + assets_.used() / 1024 + " / " +
-           assets_.total() / 1024 + " KiB\nCards: " + assets_.deck.count;
+    return String("LanyardBadge\nFirmware " BADGE_VERSION) + "\nStorage: " + assets_.used() / 1024 +
+           " / " + assets_.total() / 1024 + " KiB\nCards: " + assets_.deck.count;
 }
 } // namespace badge

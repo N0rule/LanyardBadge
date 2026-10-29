@@ -67,13 +67,6 @@ int main() {
           "abcdef01&offset=99999999999999999999999&length=1", "abcdef01&offset=0&length=1&extra=2"})
         assert(!imageRead(query, read));
     testCache();
-    char code[5], sameCode[5], otherCode[5];
-    shortPairingCode("abcdefghijklmnop", code);
-    shortPairingCode("abcdefghijklmnop", sameCode);
-    shortPairingCode("qrstuvwxyz234567", otherCode);
-    assert(strlen(code) == 4 && !strcmp(code, sameCode) && strcmp(code, otherCode));
-    for (unsigned i = 0; i < 4; ++i)
-        assert(strchr("ABCDEFGHJKLMNPQRSTUVWXYZ", code[i]));
     ScreenActivity screen;
     screen.wake(1000);
     screen.update(15999, 15, false, false);

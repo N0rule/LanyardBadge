@@ -13,6 +13,7 @@
     <script defer src="./artwork.js"></script>
     <script defer src="./gif.js"></script>
     <script defer src="./transport.js"></script>
+    <script defer src="./serial.js"></script>
     <script defer src="./app.js"></script>
   </head>
   <body>
@@ -39,7 +40,8 @@
           <button id="connect" class="primary">Connect your badge</button>
           <button id="install-open">Install firmware</button>
         </div>
-        <p class="hint">Connect over Bluetooth, or install on a new badge through USB.</p>
+        <button id="choose-connection" class="text-button" hidden>Use another connection</button>
+        <p class="hint">Plug in with USB or connect wirelessly with Bluetooth.</p>
         <p id="compatibility" class="hint">
           Use a supported Chrome or Edge browser on desktop or Android.
         </p>
@@ -77,6 +79,15 @@
           <p id="preview-help">Choose artwork to begin.</p>
         </div>
         <div class="badge-object">
+          <div id="preview-placeholder" class="preview-placeholder" aria-hidden="true" hidden>
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="7" y="5" width="34" height="38" rx="3" />
+              <circle cx="17" cy="16" r="3" />
+              <path d="M8 34l12-12 8 8 6-6 7 7" />
+            </svg>
+            <span id="preview-placeholder-label">Loading artwork</span>
+            <progress id="preview-progress" max="100"></progress>
+          </div>
           <canvas
             id="preview"
             width="240"
@@ -103,6 +114,9 @@
         </div>
         <div class="upload-state" id="upload-state" role="status" hidden>
           <span id="upload-label"></span><progress id="upload-progress" max="100"></progress>
+          <button id="cancel-transfer" type="button" class="text-button" hidden>
+            Cancel transfer
+          </button>
         </div>
       </section>
       <section class="inspector" aria-label="Edit card">
@@ -228,32 +242,14 @@
         </form>
       </section>
     </main>
-    <dialog id="pair-dialog">
-      <form id="pair-form">
-        <h2>Connect your badge</h2>
-        <p>Enter the four-letter code on your badge’s connection screen, or scan its QR code.</p>
-        <label
-          >Badge code<input
-            id="pair-password"
-            type="text"
-            required
-            minlength="4"
-            maxlength="4"
-            pattern="[A-Za-z]{4}"
-            autocapitalize="characters"
-            spellcheck="false"
-            autocomplete="off"
-        /></label>
-        <label class="remember-choice"
-          ><input id="remember-badge" type="checkbox" checked /> Remember this badge in this
-          browser</label
-        >
-        <p id="pair-error" role="alert"></p>
-        <div class="dialog-actions">
-          <button id="pair-cancel" type="button">Cancel</button
-          ><button class="primary">Pair badge</button>
-        </div>
-      </form>
+    <dialog id="connection-dialog">
+      <h2>Connect badge</h2>
+      <p>Use USB on your computer, or Bluetooth for a wireless connection.</p>
+      <div class="dialog-actions">
+        <button id="connect-usb" class="primary">Connect via USB</button>
+        <button id="connect-bluetooth">Connect via Bluetooth</button>
+        <button id="connection-cancel">Cancel</button>
+      </div>
     </dialog>
     <dialog id="device-dialog">
       <div class="section-head">
@@ -264,6 +260,17 @@
         <span id="remembered-label"></span>
         <button id="forget-badge" class="text-button" type="button">Forget badge</button>
       </div>
+      <label class="remember-choice"
+        ><input id="remember-badge" type="checkbox" checked />Remember this badge in this
+        browser</label
+      >
+      <form id="name-form">
+        <label
+          >Device name<input id="device-name" maxlength="24" required pattern="[ -~]{1,24}"
+        /></label>
+        <button type="submit">Save name</button>
+        <p id="name-status" role="status"></p>
+      </form>
       <form id="settings-form">
         <label
           >Badge theme<select id="badge-theme">
@@ -299,11 +306,8 @@
       <details>
         <summary>Advanced</summary>
         <p id="system-info" class="hint"></p>
-        <button id="calibrate-touch">Calibrate touchscreen</button>
-        <p class="hint">
-          Touch each crosshair on the badge. If touch becomes unusable, hold its BOOT button for 6
-          seconds.
-        </p>
+        <button id="factory-reset" class="danger" hidden>Factory reset</button>
+        <p id="reset-status" role="status"></p>
         <button id="collect-garbage">Clean unused artwork</button>
       </details>
       <button id="disconnect" class="full">Disconnect badge</button>

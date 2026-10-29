@@ -3,40 +3,27 @@
 Service `f40d1000-6f15-4d56-b6d4-17c92e648a10`.
 Receive/write `f40d1001-6f15-4d56-b6d4-17c92e648a10`.
 Transmit/read/notify `f40d1002-6f15-4d56-b6d4-17c92e648a10`.
-Authenticated, encrypted writes/reads; complete a protected read before subscribing, then
-subscribe before sending requests. This avoids racing security setup during a
-fast reconnect. A read returns three
-bytes: protocol version 2, then little-endian negotiated MTU (uint16). The current
-browser also accepts legacy version 1.
+BLE protocol 3 requires authenticated LE Secure Connections with a 16-byte key.
+The protected read returns protocol byte 3 and a little-endian uint16 MTU.
+Subscribe after the protected read, then send operation 6 to start a clean session.
+Unbonded peers may connect only during the two-minute enrollment window opened
+by the physical connection screen (also opened on an unconfigured boot).
+A fresh six-digit PIN appears on the badge for the native OS/browser pairing
+prompt. Existing authenticated bonds authorize later sessions. There is no
+four-letter application password, ownership key, or secret QR URL.
+Forget paired editors on the badge removes bonds; remove the stale host pairing
+before enrolling again. Firmware 2.x requires an update for the current editor.
 
-Current firmware advertises the link-security profile `sc-passkey-v1` in authenticated
-status diagnostics, independently of wire protocol version 2. It requires LE Secure
-Connections, MITM authentication and a 16-byte encryption key. DisplayOnly pairing
-shows a fresh six-digit PIN on the badge; the user types it into the browser/OS native
-prompt. The PIN is never returned through this API, logged, or stored. It is cleared
-on completion/disconnect and canceled after 60 seconds. Bonded reconnects normally
-require no PIN. The separate four-letter editor code is not a Bluetooth PIN.
-
-The UUIDs, handles, HELLO and operation framing are unchanged so existing open editor
-tabs can reconnect and save drafts before refreshing. The browser supports older
-protocol-1/2 firmware with its original link-security policy; it never treats a legacy
-HELLO as proof of the new profile. Firmware does not fall back to unauthenticated
-security. An old Just Works bond gets one standard security-upgrade attempt; if the
-host cannot upgrade it, re-pair that badge once. This migration path still needs
-cross-platform radio validation. Ownership credentials and stored artwork are retained.
-
-After subscribing, a protocol-2 client sends operation 6 with a fresh sequence,
-offset 0 and no payload, then waits for operation-0 acknowledgement at offset 0.
-This abandons a previous editor's response/temporary upload and API token even
-when the OS retains the physical BLE connection across page reloads. It never
-deletes committed artwork, changes pairing credentials or resets retry limits.
+USB uses the same operations inside [serial framing](USB-PROTOCOL.md).
+Physical access and browser serial permission authorize USB sessions. Only one
+transport owns the API at a time.
 
 Every framed packet starts with operation (u8), request sequence (u16 LE), offset
 or length (u32 LE). Remaining bytes are payload. Total packet length ≤ min(512,
 MTU−3). At MTU 23, 13 payload bytes remain. Requests are serialized per connection.
 
 1. Client sends operation 4 fragments containing a UTF-8 JSON header:
-   `{method:"POST",path:"/api/pair",token:"",length:31}`. Offset is header bytes
+   `{method:"POST",path:"/api/pair",token:"",length:2}`. Offset is header bytes
    already sent; device acknowledges with operation 0 and cumulative header bytes.
 2. Client sends operation 1 with no payload to start the parsed request; device
    acknowledges operation 0, offset 0. Older inline headers remain accepted.
@@ -63,7 +50,7 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 
 | Operation                    | Body / response                                                                                      |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------- |
-| POST `/api/pair`             | `{password: four-letter-code-or-remembered-credential}` → `{token,credential}`                       |
+| POST `/api/pair`             | `{}` → `{token,snapshot}`                       |
 | GET `/api/status`            | Diagnostics, storage, settings, current selection, sleep/BLE state                                   |
 | GET `/api/cards`             | `{version:2,revision,cards:[...]}`                                                                   |
 | POST `/api/cards`            | Complete deck with matching revision → committed deck                                                |
@@ -72,7 +59,8 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 | GET `/api/image?id=xxxxxxxx` | Validated image ID → BMP bytes                                                                       |
 | POST `/api/select`           | `{id}` → device status                                                                               |
 | POST `/api/settings`         | brightness, interval, autoplay, rotation, defaultCard, optional screenTimeout and darkMode (boolean) |
-| POST `/api/calibrate`        | `{}` → starts optional physical calibration                                                          |
+| POST `/api/name` | `{name}` → status; 1–24 printable ASCII characters, no edge spaces |
+| POST `/api/reset` | `{}` → 202; requires release then hold BOOT for 3 seconds on badge |
 | POST `/api/gc`               | `{}` → number of unreferenced images removed                                                         |
 | POST `/api/display`          | `{}` → returns to artwork                                                                            |
 
@@ -80,19 +68,16 @@ Except pairing, operations require the session token in the request header. Asse
 uploads additionally require the authenticated connection. UUIDs and API paths
 are protocol identifiers, not HTTP requests against GitHub Pages.
 
-Short codes are case-insensitive letters and require the device's connection
-screen to be open. Strong remembered credentials and legacy QR keys can reconnect
-from the artwork screen. Five incorrect attempts trigger a 30-second delay;
-429 reports throttling and 403 requests opening the physical connection screen.
-The returned credential is secret: clients may remember it with explicit UI
-disclosure, but must not log it or include it in query strings.
+Cards use the version-2 envelope with artwork-only modes: id, title, mode, image,
+and background. Empty compatibility fields remain in responses so existing
+artwork workspaces survive updates. Profile/custom manifests are detected before
+loading and kept on disk. Upload, commit and garbage collection remain blocked
+until the owner acknowledges a factory reset; old metadata is never silently
+converted into a blank collection. Current BMP/LBA assets are unchanged.
 
-Cards retain the version-2 compatibility schema: id, title, mode, image, background,
-foreground, accent, name, description, url, texts and shapes. New editor cards use
-`mode:"artwork"` and empty legacy fields. Zero through ten cards; unique eight-digit
-lowercase hex IDs; bounded ASCII titles and legacy text. Failed metadata commits
-leave both the edited source in the browser and the previous valid manifest on the
-device. An asset uploaded before a failed commit can be reused in the same tab.
+Status includes stable `deviceId`, public `cacheEpoch`, `deviceName`,
+`factoryReset:true`, and `legacyCollection`. Reset changes cacheEpoch and removes
+settings, artwork and bonds. A reset request alone does not erase anything.
 
 BLE firmware updates are not implemented. Firmware installation uses USB manifests,
 not this service.
@@ -104,7 +89,7 @@ GAP encryption-change result) and `bluetoothSecurityEvents` (its count since boo
 They survive a disconnect in RAM, not a reboot. Status 0 with count 0 means no
 security result has been observed. With an observed event, status 0 indicates
 successful security state change; also inspect `bluetoothEncrypted` and
-`bluetoothAuthenticated` for the live link. `bluetoothProtocol` is 2 and
+`bluetoothAuthenticated` for the live link. `bluetoothProtocol` is 3 and
 `bluetoothSecurityProfile` is `sc-passkey-v1` on current firmware. Native error bases follow the pinned NimBLE host: HCI 0x200, local SMP 0x400,
 peer SMP 0x500. For example, 0x50C is a peer SMP Numeric Comparison Failed rejection.
 These diagnostic values contain no keys, tokens, PINs, or peer addresses. Older

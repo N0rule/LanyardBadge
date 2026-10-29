@@ -424,11 +424,17 @@ progress::-webkit-progress-value {
   width: 100%;
 }
 .preview-heading p {
+  width: 100%;
+  max-width: none;
+  min-height: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--muted);
   margin: 0;
 }
 .badge-object {
+  position: relative;
   flex: none;
   display: inline-flex;
   padding: 14px;
@@ -610,6 +616,7 @@ dialog p {
   font-size: 13px;
 }
 .dialog-actions {
+  flex-wrap: wrap;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -696,6 +703,7 @@ summary {
     padding: 28px 12px;
   }
   .badge-object {
+    position: relative;
     padding: 12px;
   }
   #preview {
@@ -781,6 +789,7 @@ summary {
     order: 0;
   }
   .badge-object {
+    position: relative;
     padding: 14px;
     margin-top: 24px;
   }
@@ -825,4 +834,28 @@ ewt-no-port-picked-dialog {
   --md-sys-color-secondary-container: var(--soft);
   --md-sys-color-outline: var(--line);
   color: var(--ink);
+}
+
+.preview-placeholder {
+  position: absolute;
+  inset: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.preview-placeholder svg {
+  width: 48px;
+  height: 48px;
+}
+.preview-placeholder progress {
+  width: 120px;
+  height: 3px;
+  margin: 0;
 }

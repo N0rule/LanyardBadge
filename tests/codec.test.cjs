@@ -35,6 +35,7 @@ assert.equal(fit.h, 180);
 assert.equal(fit.y, 70);
 const c = {
   title: 'Test',
+  mode: 'artwork',
   name: 'Hi',
   description: 'two\nlines',
   url: 'https://example.com',
@@ -42,8 +43,8 @@ const c = {
   shapes: [],
 };
 validateCard(c);
-assert.throws(() => validateCard({ ...c, url: 'javascript:alert(1)' }));
-assert.throws(() => validateCard({ ...c, name: '中文' }));
+assert.throws(() => validateCard({ ...c, mode: 'profile' }));
+assert.throws(() => validateCard({ ...c, title: '中文' }));
 console.log(
   'Browser codec: RGB565 precision, row order, BMP validation, crop math and text validation passed',
 );

@@ -46,7 +46,7 @@ async function image(page) {
 }
 async function connect(page) {
   await page.locator('#connect').click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
 }
 const pixels = (page) =>
   page.evaluate(() =>
@@ -133,7 +133,7 @@ test('simulated GATT: minimum MTU, upload/export consistency, settings and recon
   await page.locator('#disconnect').click();
   await expect(page.locator('#connection')).toHaveText('Disconnected');
   await page.locator('#connect').click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   expect(errors).toEqual([]);
 });
 test('metadata failure retains transform and uploaded asset for retry', async ({ page }) => {
@@ -206,7 +206,8 @@ test('mobile pointer dragging, page width, keyboard, and fit/rotation', async ({
 test('unsupported browser guidance and subpath assets', async ({ page }) => {
   const errors = await setup(page, { mock: false });
   await page.addScriptTag({
-    content: "Object.defineProperty(navigator,'bluetooth',{value:undefined,configurable:true});",
+    content:
+      "for (const name of ['bluetooth', 'serial']) Object.defineProperty(navigator,name,{value:undefined,configurable:true});",
   });
   await page.locator('#connect').click();
   await expect(page.locator('#connection')).toHaveText('Unsupported browser');
@@ -247,26 +248,6 @@ test('response timeout measures inactivity instead of total download duration', 
   expect(await page.evaluate(() => slowDone)).toBe(true);
 });
 
-test('revoked QR key offers manual re-pair without losing unsaved artwork', async ({ page }) => {
-  const errors = await setup(page);
-  await connect(page);
-  await image(page);
-  await page.locator('#title').fill('Keep my artwork');
-  await page.evaluate(() => {
-    bleMock.password = 'qrstuvwxyz234567';
-    badgeDevice.disconnect();
-  });
-  await page.locator('#connect').click();
-  await expect(page.locator('#pair-dialog')).toBeVisible();
-  await expect(page.locator('#pair-error')).toContainText('Your unsaved artwork is safe.');
-  await page.locator('#pair-password').fill('abcd');
-  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
-  await expect(page.locator('#title')).toHaveValue('Keep my artwork');
-  expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
-  expect(errors).toEqual([]);
-});
-
 test('expired API session disconnects clearly and keeps artwork for reconnect', async ({
   page,
 }) => {
@@ -281,87 +262,8 @@ test('expired API session disconnects clearly and keeps artwork for reconnect', 
   await expect(page.locator('#toast')).toContainText('Session expired');
   expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
   await page.locator('#connect').click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   expect(await page.evaluate(() => BadgeEditor.state.dirty)).toBe(true);
-  expect(errors).toEqual([]);
-});
-
-test('four-letter pairing remembers the badge and reconnects after refresh without a chooser', async ({
-  page,
-}) => {
-  const errors = await setup(page);
-  await page.goto('https://badge.test/LanyardBadge/');
-  await page.locator('#connect').click();
-  await expect(page.locator('#pair-dialog')).toBeVisible();
-  await page.locator('#pair-password').fill('abcd');
-  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
-  const remembered = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('lanyardbadge.connection')),
-  );
-  expect(remembered.id).toBe('mock-badge-id');
-  expect(remembered.credential).toHaveLength(16);
-  const options = await page.evaluate(() => bleMock.discoveryOptions);
-  expect(options.filters).toEqual([{ services: [BadgeService()] }, { namePrefix: 'Badge-' }]);
-  expect(options.optionalServices).toEqual([BadgeService()]);
-  await page.reload();
-  await expect(page.locator('#connection')).toHaveText('Connected');
-  await expect(page.locator('#pair-dialog')).not.toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('ble.mock.choosers'))).toBe('1');
-  await image(page);
-  await page.locator('#title').fill('Keep this draft');
-  await page.locator('#device-open').click();
-  await page.locator('#forget-badge').click();
-  await expect(page.locator('#connection')).toHaveText('Disconnected');
-  await expect(page.locator('#title')).toHaveValue('Keep this draft');
-  expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).toBeNull();
-  expect(errors).toEqual([]);
-});
-function BadgeService() {
-  return 'f40d1000-6f15-4d56-b6d4-17c92e648a10';
-}
-
-test('remembering is optional and unavailable remembered devices never look connected', async ({
-  page,
-}) => {
-  const errors = await setup(page);
-  await page.goto('https://badge.test/LanyardBadge/');
-  await page.locator('#connect').click();
-  await page.locator('#remember-badge').uncheck();
-  await page.locator('#pair-password').fill('ABCD');
-  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
-  expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).toBeNull();
-  await page.evaluate(() => {
-    localStorage.setItem(
-      'lanyardbadge.connection',
-      JSON.stringify({ id: 'removed-device', name: 'Badge-Test', credential: 'abcdefghijklmnop' }),
-    );
-  });
-  await page.reload();
-  await expect(page.locator('#connection')).toHaveText('Disconnected');
-  await expect(page.locator('#connect')).toHaveText('Reconnect badge');
-  await expect(page.locator('#pair-dialog')).not.toBeVisible();
-  expect(errors).toEqual([]);
-});
-
-test('a remembered credential invalidated by reflashing offers a new short code', async ({
-  page,
-}) => {
-  const errors = await setup(page);
-  await connect(page);
-  await page.evaluate(() => {
-    const saved = JSON.parse(localStorage.getItem('lanyardbadge.connection'));
-    saved.credential = 'qrstuvwxyz234567';
-    localStorage.setItem('lanyardbadge.connection', JSON.stringify(saved));
-  });
-  await page.reload();
-  await expect(page.locator('#pair-dialog')).toBeVisible();
-  await expect(page.locator('#pair-error')).toContainText('Your unsaved artwork is safe.');
-  expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).toBeNull();
-  await page.locator('#pair-password').fill('ABCD');
-  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
   expect(errors).toEqual([]);
 });
 
@@ -377,7 +279,7 @@ test('failed automatic reconnect stays disconnected and keeps remembered access 
   expect(await page.evaluate(() => localStorage.getItem('lanyardbadge.connection'))).not.toBeNull();
   await page.evaluate(() => localStorage.removeItem('ble.mock.failConnect'));
   await page.locator('#connect').click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   await expect(page.locator('#pair-dialog')).not.toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -456,22 +358,10 @@ test('a new page resets an abandoned response on a retained physical BLE link', 
   await connect(page);
   await page.evaluate(() => localStorage.setItem('ble.mock.abandoned', 'yes'));
   await page.reload();
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   expect(await page.evaluate(() => bleMock.sessionStarts)).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem('ble.mock.abandoned'))).toBeNull();
   expect(await page.evaluate(() => bleMock.deck.revision)).toBe(1);
-  expect(errors).toEqual([]);
-});
-
-test('legacy protocol devices remain connectable without the new session reset', async ({
-  page,
-}) => {
-  const errors = await setup(page);
-  await page.evaluate(() => {
-    bleMock.protocol = 1;
-  });
-  await connect(page);
-  expect(await page.evaluate(() => bleMock.sessionStarts || 0)).toBe(0);
   expect(errors).toEqual([]);
 });
 
@@ -544,7 +434,7 @@ test('same-page reconnect renews a stale native notification subscription', asyn
     bleMock.subscriptionStale = true;
   });
   await page.locator('#connect').click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   expect(await page.evaluate(() => bleMock.stoppedSubscriptions)).toBe(1);
   expect(errors).toEqual([]);
 });
@@ -592,7 +482,7 @@ test('duplicate native notification events retain a single complete response', a
   await connect(page);
   const cards = await page.evaluate(() => badgeDevice.getCards());
   expect(cards.cards[0].title).toBe('First card');
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   expect(errors).toEqual([]);
 });
 
@@ -692,41 +582,6 @@ test('GIF preview, adjustments, animation upload and cached reconnect retain all
   expect(errors).toEqual([]);
 });
 
-test('unsaved original GIF and transforms survive revoked credentials and manual re-pair', async ({
-  page,
-}) => {
-  const errors = await setup(page, { mockOptions: { mtu: 517 } });
-  await connect(page);
-  await page.locator('#image-file').setInputFiles(path.join(__dirname, 'fixtures/disposal.gif'));
-  await expect(page.locator('#artwork-status')).toContainText('4 frames');
-  await page.locator('#title').fill('Keep every frame');
-  await page.locator('#zoom-value').fill('140');
-  await page.locator('#rotate-right').click();
-  await page.evaluate(() => {
-    globalThis.originalGIF = BadgeEditor.state.animationSource;
-    globalThis.originalGIFCanvas = BadgeEditor.state.image;
-    bleMock.password = 'qrstuvwxyz234567';
-    badgeDevice.disconnect();
-  });
-  await page.locator('#connect').click();
-  await expect(page.locator('#pair-dialog')).toBeVisible();
-  await page.locator('#pair-password').fill('abcd');
-  await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
-  await expect(page.locator('#connection')).toHaveText('Connected');
-  await expect(page.locator('#title')).toHaveValue('Keep every frame');
-  expect(
-    await page.evaluate(() => ({
-      same:
-        BadgeEditor.state.animationSource === originalGIF &&
-        BadgeEditor.state.image === originalGIFCanvas,
-      rotation: BadgeEditor.state.rotation,
-      zoom: BadgeEditor.state.zoom,
-      dirty: BadgeEditor.changed,
-    })),
-  ).toEqual({ same: true, rotation: 90, zoom: 1.4, dirty: true });
-  expect(errors).toEqual([]);
-});
-
 test('preview group shares its horizontal and vertical center during upload on desktop and mobile', async ({
   page,
 }) => {
@@ -763,60 +618,6 @@ test('preview group shares its horizontal and vertical center during upload on d
     expect(Math.abs(bounds.vertical)).toBeLessThan(2);
   }
 });
-
-for (const snapshot of [false, true]) {
-  test(`draft source, transforms and failed authorization survive rotation (snapshot=${snapshot})`, async ({
-    page,
-  }) => {
-    const errors = await setup(page, { mockOptions: { snapshot } });
-    await connect(page);
-    await image(page);
-    await page.locator('#title').fill('Keep my artwork');
-    await page.locator('#fit').selectOption('contain');
-    await page.locator('#fit').dispatchEvent('input');
-    await page.locator('#zoom-value').fill('150');
-    await page.locator('#crop-x').fill('23');
-    await page.locator('#crop-x').dispatchEvent('input');
-    await page.locator('#rotate-right').click();
-    await page.locator('#background').fill('#123456');
-    await page.locator('#background').dispatchEvent('input');
-    const before = await page.evaluate(() => {
-      globalThis.draftSource = BadgeEditor.state.image;
-      const { image, ...transform } = BadgeEditor.state;
-      return { transform, card: structuredClone(BadgeEditor.deck.cards[0]) };
-    });
-    // First prove ordinary reconnect, then failed remembered and manual authentication.
-    await page.evaluate(() => badgeDevice.disconnect());
-    await connect(page);
-    await expect(page.locator('#title')).toHaveValue('Keep my artwork');
-    await page.evaluate(() => {
-      bleMock.password = 'qrstuvwxyz234567';
-      badgeDevice.disconnect();
-    });
-    await page.locator('#connect').click();
-    await expect(page.locator('#pair-error')).toContainText('Your unsaved artwork is safe');
-    await page.locator('#pair-password').fill('zzzz');
-    await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
-    await expect(page.locator('#pair-error')).toHaveText('Wrong pairing key');
-    expect(await page.evaluate(() => BadgeEditor.changed)).toBe(true);
-    await page.locator('#pair-password').fill('abcd');
-    await page.getByRole('button', { name: 'Pair badge', exact: true }).click();
-    await expect(page.locator('#connection')).toHaveText('Connected');
-    const after = await page.evaluate(() => {
-      const { image, ...transform } = BadgeEditor.state;
-      return {
-        transform,
-        card: structuredClone(BadgeEditor.deck.cards[0]),
-        sameSource: image === draftSource,
-        width: image.width,
-        dirty: BadgeEditor.changed,
-      };
-    });
-    expect(after).toEqual({ ...before, sameSource: true, width: 640, dirty: true });
-    await expect(page.locator('#save-state')).toHaveText('Unsaved changes');
-    expect(errors).toEqual([]);
-  });
-}
 
 test('remote deletion and full collection retain drafts and require explicit conflict review', async ({
   page,
@@ -1058,14 +859,14 @@ test('browser pairing waits for native PIN entry and reconnect reuses its bond',
   expect(await page.evaluate(() => bleMock.requests)).toEqual([]);
   await expect(page.locator('#studio')).toBeHidden();
   await page.evaluate(() => bleMock.completeNativePairing(true));
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   await image(page);
   await page.locator('#title').fill('Browser paired draft');
   await page.evaluate(() => badgeDevice.disconnect());
   await connect(page);
   await expect(page.locator('#title')).toHaveValue('Browser paired draft');
   expect(await page.evaluate(() => bleMock.nativePairingCount)).toBe(1);
-  expect(await page.evaluate(() => badgeDevice.protocol)).toBe(2);
+  expect(await page.evaluate(() => badgeDevice.protocol)).toBe(3);
 });
 
 test('rejected native PIN keeps the source draft and permits a fresh browser pairing attempt', async ({
@@ -1075,7 +876,7 @@ test('rejected native PIN keeps the source draft and permits a fresh browser pai
   await page.locator('#connect').click();
   await page.waitForFunction(() => bleMock.passkeyRequested);
   await page.evaluate(() => bleMock.completeNativePairing(true));
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   await image(page);
   await page.locator('#title').fill('Keep the original source');
   await page.evaluate(() => {
@@ -1094,6 +895,105 @@ test('rejected native PIN keeps the source draft and permits a fresh browser pai
   await page.locator('#connect').click();
   await page.waitForFunction(() => bleMock.passkeyRequested);
   await page.evaluate(() => bleMock.completeNativePairing(true));
-  await expect(page.locator('#connection')).toHaveText('Connected');
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
   await expect(page.locator('#title')).toHaveValue('Keep the original source');
+});
+
+test('loading status text stays centered on the physical badge for every percentage', async ({
+  page,
+}) => {
+  await setup(page);
+  await connect(page);
+  for (const width of [320, 390, 780, 1360, 1920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    let previousY;
+    for (const text of [
+      'Loading card… 4%',
+      'Loading card… 45%',
+      'Loading card… 100%',
+      'Preparing artwork…',
+      'Card ready',
+      'Preview unavailable',
+    ]) {
+      const geometry = await page.evaluate((text) => {
+        const help = document.querySelector('#preview-help');
+        help.textContent = text;
+        const range = document.createRange();
+        range.selectNodeContents(help);
+        const label = range.getBoundingClientRect(),
+          badge = document.querySelector('.badge-object').getBoundingClientRect();
+        return {
+          difference: label.x + label.width / 2 - (badge.x + badge.width / 2),
+          y: badge.y,
+          overflow: document.documentElement.scrollWidth > innerWidth,
+        };
+      }, text);
+      expect(Math.abs(geometry.difference)).toBeLessThan(1);
+      expect(geometry.overflow).toBe(false);
+      if (previousY !== undefined) expect(geometry.y).toBe(previousY);
+      previousY = geometry.y;
+    }
+    await page.screenshot({
+      path: `../test-results/preview-alignment-${width}.png`,
+      fullPage: true,
+    });
+  }
+});
+
+test('firmware identity upgrade keeps the existing browser-keyed draft', async ({ page }) => {
+  const errors = await setup(page, { mockOptions: { snapshot: true } });
+  await connect(page);
+  await page.locator('#title').fill('Keep through firmware update');
+  await page.locator('#disconnect-top').click();
+  await page.evaluate(() => {
+    bleMock.status.deviceId = '0123456789abcdef';
+    bleMock.status.cacheEpoch = 'public-generation';
+  });
+  await connect(page);
+  await expect(page.locator('#title')).toHaveValue('Keep through firmware update');
+  expect(await page.evaluate(() => BadgeEditor.changed)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('native bond authorization skips the application code and stores no ownership secret', async ({
+  page,
+}) => {
+  const errors = await setup(page, { mockOptions: { protocol: 3, snapshot: true } });
+  await connect(page);
+  await expect(page.locator('#pair-dialog')).not.toBeVisible();
+  expect(
+    await page.evaluate(() => JSON.parse(localStorage.getItem('lanyardbadge.connection'))),
+  ).toMatchObject({ native: true });
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('lanyardbadge.connection')).credential,
+    ),
+  ).toBeUndefined();
+  await page.reload();
+  await expect(page.locator('#connection')).toHaveText('Connected via Bluetooth');
+  expect(errors).toEqual([]);
+});
+
+test('device name and reset request use shared API with deliberate confirmation', async ({
+  page,
+}) => {
+  const errors = await setup(page, { mockOptions: { protocol: 3, snapshot: true } });
+  await connect(page);
+  await page.evaluate(() =>
+    Object.assign(bleMock.status, { deviceName: 'LanyardBadge', factoryReset: true }),
+  );
+  await page.locator('#device-open').click();
+  await page.locator('#device-name').fill('Convention Badge');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await expect(page.locator('#name-status')).toHaveText('Device name saved.');
+  expect(await page.evaluate(() => bleMock.status.deviceName)).toBe('Convention Badge');
+  await page.locator('#device-dialog summary').click();
+  page.once('dialog', (d) => d.dismiss());
+  await page.locator('#factory-reset').click();
+  expect(await page.evaluate(() => !!bleMock.resetRequested)).toBe(false);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#factory-reset').click();
+  await expect(page.locator('#reset-status')).toContainText('hold it on the badge for 3 seconds');
+  expect(await page.evaluate(() => bleMock.deck.cards.length)).toBe(1);
+  expect(errors).toEqual([]);
 });
