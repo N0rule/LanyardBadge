@@ -24,10 +24,9 @@ For USB editing, choose **Connect badge → Connect via USB** and grant the brow
 permission to use the USB serial port. Previously authorized ports can reconnect
 automatically. The badge identifies itself before the editor opens.
 
-For Bluetooth, hold the badge screen to open its menu, then choose **Connect to
-editor**. Scan the QR or open the website and choose Bluetooth. New editors have
-a two-minute enrollment window. Enter the six-digit PIN displayed on the badge
-when the operating system requests it. There is no separate application code.
+For Bluetooth, open the website on your computer and choose Bluetooth. The badge
+shows its six-digit PIN automatically when native pairing begins. Enter it in the
+operating-system prompt. No badge menu or hardware button is needed.
 Previously bonded editors reconnect using their native authenticated bond.
 
 The 3.0 editor requires Bluetooth protocol 3. Update older firmware through USB.
@@ -53,16 +52,16 @@ current tab. Keep that tab open until your work is uploaded.
 theme. Website light/dark/system theme is independent of the device theme.
 Device names accept 1–24 printable ASCII characters, without leading or trailing
 spaces. Names persist across firmware updates. The badge's settings menu shows
-the name and links back to the editor to change it.
+the name directly; change it from the website.
 
-To revoke Bluetooth access, use **Settings → Advanced → Forget editors** on the
+To revoke Bluetooth access, use **Settings → Forget paired editors** on the
 badge. Remove its old pairing in your operating system before enrolling again.
 This keeps artwork and settings.
 
 **Factory reset** is available in the badge settings and in the website's
 **Device settings → Advanced** section. It deletes artwork, settings, names and
 Bluetooth bonds. The website first asks for confirmation; the badge then requires
-you to release BOOT and hold it for three seconds. Go back on the badge to cancel,
+you to tap **Erase everything** on its touchscreen. Tap **Cancel** to cancel,
 or allow the confirmation screen to expire. Firmware and the bootloader remain.
 An interrupted reset resumes at the next boot.
 
@@ -79,8 +78,7 @@ An interrupted reset resumes at the next boot.
   stable badge identity, even when switching USB/Bluetooth or changing its name.
 - Storage full: clean unused artwork from Advanced settings, or delete a card you
   no longer need. The cleanup preserves assets referenced by the recovery manifest.
-- Touch recovery: hold BOOT for six seconds to access the internal recovery wizard.
-  Calibration is not part of everyday settings.
+- The existing touch mapping is preserved. No device workflow requires a physical button.
 
 ## Development
 

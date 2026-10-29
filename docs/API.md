@@ -6,8 +6,8 @@ Transmit/read/notify `f40d1002-6f15-4d56-b6d4-17c92e648a10`.
 BLE protocol 3 requires authenticated LE Secure Connections with a 16-byte key.
 The protected read returns protocol byte 3 and a little-endian uint16 MTU.
 Subscribe after the protected read, then send operation 6 to start a clean session.
-Unbonded peers may connect only during the two-minute enrollment window opened
-by the physical connection screen (also opened on an unconfigured boot).
+In firmware 3.0.1, the PC may initiate connections without opening a badge menu.
+New peers must still complete native authenticated PIN pairing.
 A fresh six-digit PIN appears on the badge for the native OS/browser pairing
 prompt. Existing authenticated bonds authorize later sessions. There is no
 four-letter application password, ownership key, or secret QR URL.
@@ -60,7 +60,7 @@ timeout and a 20-minute API session lifetime refreshed by authenticated operatio
 | POST `/api/select`           | `{id}` → device status                                                                               |
 | POST `/api/settings`         | brightness, interval, autoplay, rotation, defaultCard, optional screenTimeout and darkMode (boolean) |
 | POST `/api/name` | `{name}` → status; 1–24 printable ASCII characters, no edge spaces |
-| POST `/api/reset` | `{}` → 202; requires release then hold BOOT for 3 seconds on badge |
+| POST `/api/reset` | `{}` → 202; requires tapping Erase everything on the badge touchscreen |
 | POST `/api/gc`               | `{}` → number of unreferenced images removed                                                         |
 | POST `/api/display`          | `{}` → returns to artwork                                                                            |
 

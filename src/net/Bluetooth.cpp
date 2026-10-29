@@ -11,8 +11,6 @@ void put32(uint8_t *p, uint32_t v) {
 } // namespace
 bool Bluetooth::begin() {
     trusted = true;
-    if (!settings_.value.provisioned)
-        openEnrollment();
     queue_ = xQueueCreate(4, sizeof(Packet));
     if (!queue_)
         return false;
@@ -23,7 +21,8 @@ bool Bluetooth::begin() {
     NimBLEDevice::init(name_.c_str());
     NimBLEDevice::setMTU(517);
     // Authenticated LE Secure Connections; physical passkey entry establishes the link.
-    // Native authenticated bonds authorize editors; new enrollment needs physical access.
+    // Native authenticated bonds authorize editors; new enrollment requires the badge-displayed
+    // native PIN.
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
     NimBLEDevice::setSecurityAuth(true, true, true);
     // Keep the host's actual security failure code after disconnection. The
@@ -93,8 +92,6 @@ String Bluetooth::pairingUrl() const {
 bool Bluetooth::forgetEditors() {
     revoke();
     bool removed = NimBLEDevice::deleteAllBonds();
-    if (removed)
-        openEnrollment();
     return removed;
 }
 void Bluetooth::revoke() {
@@ -104,10 +101,8 @@ void Bluetooth::revoke() {
     reset();
 }
 void Bluetooth::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
-    if (!NimBLEDevice::isBonded(info.getIdAddress()) && !enrollmentOpen()) {
-        server_->disconnect(info.getConnHandle());
-        return;
-    }
+    // PC-initiated connections are allowed at any time. Protected GATT still
+    // requires authenticated Secure Connections and the badge-displayed PIN.
     handle_ = info.getConnHandle();
     mtu_ = info.getMTU();
     initialInterval_ = info.getConnInterval();

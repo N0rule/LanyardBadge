@@ -142,9 +142,10 @@ bool Ui::begin() {
         if (!strcmp(assets_.deck.cards[i].id, settings_.value.selected))
             selected_ = i;
     activity_.wake(millis());
-    if (!assets_.legacyCollection() && (!settings_.value.provisioned ||
-        (assets_.deck.count && !strcmp(assets_.deck.cards[selected_].mode, "artwork") &&
-         !assets_.bitmapExists(assets_.deck.cards[selected_].image))))
+    if (!assets_.legacyCollection() &&
+        (!settings_.value.provisioned ||
+         (assets_.deck.count && !strcmp(assets_.deck.cards[selected_].mode, "artwork") &&
+          !assets_.bitmapExists(assets_.deck.cards[selected_].image))))
         page(Page::Pairing);
     render();
     return true;
@@ -208,15 +209,9 @@ void Ui::back() {
         target = Page::Badge;
         break;
     case Page::FactoryReset:
-    case Page::DeviceName:
-    case Page::Advanced:
-    case Page::Info:
-        target = Page::Settings;
-        break;
-    case Page::Calibration:
-    case Page::Storage:
     case Page::RePair:
-        target = Page::Advanced;
+    case Page::Calibration:
+        target = Page::Settings;
         break;
     default:
         break;
@@ -240,7 +235,10 @@ void Ui::header(const char *title) {
 void Ui::renderBadge(lv_obj_t *root) {
     if (assets_.legacyCollection()) {
         label(root, "Legacy collection", 12, 60, 216, 40, font(20), ink());
-        label(root, "Stored files are preserved.\nHold the screen, then open\nSettings > Factory reset\nto start an artwork collection.", 12, 110, 216, 140, font(14), ink());
+        label(root,
+              "Stored files are preserved.\nHold the screen, then open\nSettings > Factory "
+              "reset\nto start an artwork collection.",
+              12, 110, 216, 140, font(14), ink());
         return;
     }
     if (!assets_.deck.count) {
@@ -512,16 +510,6 @@ void Ui::render() {
                        targets[calibrationStep_].y - 17);
         return;
     }
-    if (page_ == Page::Storage) {
-        header("Storage setup");
-        label(root,
-              "Initialize blank storage?\n\nOnly an entirely erased partition can be initialized. "
-              "Existing or damaged files are never erased.",
-              16, 70, 208, 150, font(14), ink());
-        auto *b = button(root, "Initialize storage", int(Command::Storage));
-        lv_obj_set_pos(b, 16, 258);
-        return;
-    }
     if (page_ == Page::BluetoothPairing) {
         auto *title = label(root, "Bluetooth pairing", 16, 24, 208, 32, font(20), ink());
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
@@ -541,9 +529,7 @@ void Ui::render() {
         return;
     }
     if (page_ == Page::Pairing) {
-        auto *title =
-            label(root, settings_.value.provisioned ? "Connect to editor" : "Lanyard Badge", 16, 22,
-                  208, 28, font(20), ink());
+        auto *title = label(root, "Lanyard Badge", 16, 22, 208, 28, font(20), ink());
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
         auto *hint =
             label(root, "Scan to connect\nand customize.", 12, 62, 216, 34, font(14), ink());
@@ -566,15 +552,14 @@ void Ui::render() {
         lv_obj_set_style_text_align(key, LV_TEXT_ALIGN_CENTER, 0);
         return;
     }
-    header(page_ == Page::FactoryReset ? "Factory reset"
-           : page_ == Page::DeviceName ? "Device name"
-           : page_ == Page::Menu       ? "Your badge"
-           : page_ == Page::Gallery    ? "Gallery"
-           : page_ == Page::Display    ? "Display"
-           : page_ == Page::Slideshow  ? "Slideshow"
-           : page_ == Page::Settings   ? "Settings"
-           : page_ == Page::Advanced   ? "Advanced"
-                                       : "Device information");
+    header(page_ == Page::RePair         ? "Forget editors"
+           : page_ == Page::FactoryReset ? "Factory reset"
+           : page_ == Page::Menu         ? "Your badge"
+           : page_ == Page::Gallery      ? "Gallery"
+           : page_ == Page::Display      ? "Display"
+           : page_ == Page::Slideshow    ? "Slideshow"
+           : page_ == Page::Settings     ? "Settings"
+                                         : "Device information");
     auto *list = lv_obj_create(root);
     plain(list);
     lv_obj_set_pos(list, 0, 54);
@@ -595,31 +580,14 @@ void Ui::render() {
     }
     if (page_ == Page::FactoryReset) {
         label(list,
-              "Delete all artwork, settings and trusted editors? Release BOOT, then hold it for 3 "
-              "seconds to reset. Go back to cancel.",
-              0, 0, 208, 160, font(16), ink());
-        return;
-    }
-    if (page_ == Page::DeviceName) {
-        label(list, settings_.deviceName.c_str(), 0, 0, 208, 60, font(20), ink());
-        label(list, "Change this name in Device settings on the website.", 0, 0, 208, 80, font(16),
-              ink());
-        button(list, "Connect to editor", int(Command::Setup));
-        return;
-    }
-    if (page_ == Page::Info) {
-        String text = info ? info() : String("Starting...");
-        auto *l = lv_label_create(list);
-        lv_obj_set_width(l, 208);
-        lv_label_set_text(l, text.c_str());
-        lv_obj_set_style_text_color(l, lv_color_hex(ink()), 0);
-        return;
-    }
-    if (page_ == Page::Advanced) {
-        button(list, "Forget editors", -1 - int(Page::RePair));
-        if (assets_.canProvision())
-            button(list, "Set up storage", -1 - int(Page::Storage));
-        button(list, "Restart badge", int(Command::Restart));
+              resetFailed_ ? "Could not start reset. Try again or cancel."
+                           : "Erase all artwork, settings and paired editors? This cannot be "
+                             "undone. Firmware stays installed.",
+              0, 0, 208, 110, font(16), ink());
+        button(list, "Cancel", int(Command::Back));
+        auto *erase = button(list, "Erase everything", int(Command::ConfirmReset));
+        lv_obj_set_style_bg_color(erase, lv_color_hex(0xa82b46), 0);
+        lv_obj_set_style_text_color(erase, lv_color_white(), 0);
         return;
     }
     if (page_ == Page::RePair) {
@@ -631,12 +599,11 @@ void Ui::render() {
         return;
     }
     if (page_ == Page::Settings) {
-        button(list, "Device name", -1 - int(Page::DeviceName));
-        button(list, "Factory reset", -1 - int(Page::FactoryReset));
+        label(list, settings_.deviceName.c_str(), 0, 0, 208, 32, font(20), ink());
         button(list, settings_.value.darkMode ? "Theme: dark" : "Theme: light",
                int(Command::Theme));
-        button(list, "About this badge", -1 - int(Page::Info));
-        button(list, "Advanced", -1 - int(Page::Advanced));
+        button(list, "Forget paired editors", -1 - int(Page::RePair));
+        button(list, "Factory reset", -1 - int(Page::FactoryReset));
         return;
     }
     if (page_ == Page::Display) {
@@ -651,10 +618,11 @@ void Ui::render() {
         updateControls();
         return;
     }
-    button(list, "Gallery", -1 - int(Page::Gallery));
-    button(list, "Slideshow", -1 - int(Page::Slideshow));
+    if (assets_.deck.count > 1) {
+        button(list, "Gallery", -1 - int(Page::Gallery));
+        button(list, "Slideshow", -1 - int(Page::Slideshow));
+    }
     button(list, "Display", -1 - int(Page::Display));
-    button(list, "Connect to editor", int(Command::Setup));
     button(list, "Settings", -1 - int(Page::Settings));
 }
 void Ui::nativePairing(uint32_t passkey) {
@@ -671,8 +639,11 @@ void Ui::nativePairing(uint32_t passkey) {
 }
 void Ui::page(Page p) {
     wake();
-    if (p == Page::Badge && !assets_.legacyCollection() && !settings_.value.provisioned && !pairedOnce_)
+    if (p == Page::Badge && !assets_.legacyCollection() && !settings_.value.provisioned &&
+        !pairedOnce_)
         p = Page::Pairing;
+    if (p == Page::FactoryReset)
+        resetFailed_ = false;
     page_ = p;
     dirty_ = true;
     gestures_.reset();

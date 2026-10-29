@@ -182,7 +182,7 @@ function installMock(config = {}) {
     }
     if (request.path === '/api/reset') {
       mock.resetRequested = true;
-      return answer(202, { confirmation: 'Hold BOOT' });
+      return answer(202, { confirmation: 'Tap Erase everything on the badge' });
     }
     if (request.path === '/api/settings') {
       Object.assign(mock.status, body);

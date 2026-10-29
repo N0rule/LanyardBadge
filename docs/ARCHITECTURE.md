@@ -14,8 +14,7 @@ artwork is not continuously redrawn. LVGL owns menus, onboarding, progress and
 internal touch recovery; direct artwork rendering suspends LVGL invalidation.
 
 Touch gestures use the preserved calibration or established factory mapping.
-BOOT held two seconds opens connection; six seconds opens internal touch
-recovery. Ordinary settings expose no calibration wizard. Sleep sets backlight
+No hardware buttons are polled. Ordinary settings expose no calibration wizard. Sleep sets backlight
 PWM to zero without changing saved brightness, suspends rendering, and consumes
 the first waking press. Slideshow restarts its interval after wake.
 
@@ -58,10 +57,10 @@ prevents simultaneous transports from corrupting a transaction. Disconnect abort
 temporary writes and releases the session. Partial transfers expire after 15 seconds.
 
 BLE protocol 3 requires native authenticated LE Secure Connections and a 16-byte
-key. New peers need the two-minute physical enrollment window; bonded peers
-reconnect without an application password. A fresh six-digit PIN is displayed
+key. PCs initiate pairing without a badge menu; new peers must enter the
+badge-displayed PIN, while bonded peers reconnect without an application password. A fresh six-digit PIN is displayed
 only on the badge for the native pairing prompt. It is not exposed in status,
-URLs or logs. Forget paired editors deletes bonds and reopens enrollment.
+URLs or logs. Forget paired editors deletes bonds.
 NimBLE callbacks enqueue bounded packets; storage and UI work stays on the loop.
 
 USB uses 115200-baud CH340 UART, CRC-protected bounded SLIP frames, a versioned
@@ -80,7 +79,7 @@ return. USB and BLE permission dialogs remain browser/OS controlled.
 ## Factory reset
 
 A remote reset request opens physical confirmation; it does not erase data.
-The badge requires BOOT release followed by a three-second hold. A journal in
+The badge requires an explicit Erase everything tap on its confirmation screen. A journal in
 `badge-reset` is written before reboot. Before starting UI/transports, reset
 removes BLE bonds, formats only the assets partition, and clears `badge-v2`.
 The journal is removed only after all steps succeed. Interrupted/failed resets

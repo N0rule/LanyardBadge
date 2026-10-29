@@ -22,8 +22,8 @@ Ui ui(display, touch, assets, settings);
 badge::Network network(settings, assets);
 Bluetooth bluetooth(network, assets, settings);
 SerialTransport usb(network, assets);
-uint32_t switchedAt = 0, saveAt = 0, restartAt = 0;
-bool pendingSave = false, pendingClose = false;
+uint32_t switchedAt = 0, saveAt = 0;
+bool pendingSave = false;
 uint32_t loopMaxUs = 0;
 void scheduleSave() {
     pendingSave = true;
@@ -85,10 +85,6 @@ void act(Command c, int value) {
         bluetooth.cancelNativePairing();
         ui.nativePairing(UINT32_MAX);
         return;
-    case Command::Setup:
-        bluetooth.openEnrollment();
-        ui.page(Page::Pairing);
-        return;
     case Command::Timeout: {
         const uint32_t options[] = {0, 15, 30, 60, 120, 300, 600};
         for (unsigned i = 0; i < 7; ++i)
@@ -100,7 +96,7 @@ void act(Command c, int value) {
     }
     case Command::RevokePairing:
         if (bluetooth.forgetEditors())
-            ui.page(Page::Pairing);
+            ui.page(Page::Settings);
         return;
     case Command::Theme:
         s.darkMode = !s.darkMode;
@@ -108,22 +104,17 @@ void act(Command c, int value) {
     case Command::Back:
         ui.goBack();
         return;
-    case Command::CloseSetup:
-        pendingClose = true;
-        return;
     case Command::Rotate:
         s.rotation = s.rotation == 0 ? 2 : 0;
         ui.orientation();
         break;
-    case Command::Restart:
-        restartAt = millis() + 300;
-        return;
-    case Command::Storage:
-        if (assets.provision()) {
-            Console::println("Blank LittleFS initialized; no existing files overwritten");
-            ui.invalidate();
-        } else
-            Console::println("Storage setup failed or filesystem already mounted");
+    case Command::ConfirmReset:
+        if (ui.currentPage() != Page::FactoryReset)
+            return;
+        if (requestFactoryReset())
+            ESP.restart();
+        else
+            ui.resetFailed();
         return;
     }
     scheduleSave();
@@ -140,7 +131,6 @@ void setup() {
     Serial.begin(115200);
     resumeFactoryReset();
     delay(100);
-    pinMode(board::boot, INPUT_PULLUP);
     Console::printf("\nLanyardBadge " BADGE_VERSION
                     " | chip=%s rev=%u flash=%u PSRAM=%u reset=%d\n",
                     ESP.getChipModel(), ESP.getChipRevision(), unsigned(ESP.getFlashChipSize()),
@@ -164,7 +154,6 @@ void setup() {
         settings.save();
     }
     ui.command = act;
-    ui.info = [] { return network.summary(); };
 
     ui.pairingUrl = [] { return bluetooth.pairingUrl(); };
     if (!bluetooth.begin())
@@ -258,8 +247,7 @@ void setup() {
     };
 
     switchedAt = millis();
-    Console::println(
-        "Ready. Hold screen for menu. Hold BOOT 2s for editor, 6s for touch recovery.");
+    Console::println("Ready. Hold screen for menu. Connect from the editor on your computer.");
     printStatus();
 }
 void loop() {
@@ -270,52 +258,14 @@ void loop() {
     bluetooth.tick();
 
     usb.tick();
-    // BOOT is input-only here: no peripheral is driven on an unverified expansion pin.
-    static uint32_t pressedAt = 0;
-    static bool latched = false;
-    static bool resetReleased = false;
-    static uint32_t resetHeld = 0, resetOpened = 0;
+    static uint32_t resetOpened = 0;
     if (ui.currentPage() == Page::FactoryReset) {
         if (!resetOpened)
             resetOpened = millis();
         if (millis() - resetOpened > 60000)
             ui.page(Page::Settings);
-        if (digitalRead(board::boot) == HIGH) {
-            resetReleased = true;
-            resetHeld = 0;
-        } else if (resetReleased) {
-            if (!resetHeld)
-                resetHeld = millis();
-            if (millis() - resetHeld >= 3000 && requestFactoryReset())
-                ESP.restart();
-        }
-        pressedAt = 0;
-        latched = false;
-    } else if (digitalRead(board::boot) == LOW) {
-        resetReleased = false;
-        resetHeld = resetOpened = 0;
-        if (!pressedAt)
-            pressedAt = millis();
-        if (latched && millis() - pressedAt >= 6000 && ui.currentPage() != Page::Calibration) {
-            settings.value.calibration = Calibration{};
-            ui.orientation();
-            ui.page(Page::Calibration);
-        }
-        if (!latched && millis() - pressedAt >= 2000) {
-            latched = true;
-            act(Command::Setup, 0);
-        }
-    } else {
-        resetReleased = false;
-        resetHeld = resetOpened = 0;
-        pressedAt = 0;
-        latched = false;
-    }
-    if (pendingClose) {
-        pendingClose = false;
-        bluetooth.revoke();
-        ui.page(Page::Badge);
-    }
+    } else
+        resetOpened = 0;
     if (pendingSave && millis() - saveAt >= 1500) {
         if (!settings.save())
             Console::println("WARNING: Could not persist settings");
@@ -329,11 +279,7 @@ void loop() {
     if (assets.deck.count > 1 && settings.value.autoplay && visible &&
         millis() - switchedAt >= settings.value.interval * 1000U)
         show((ui.selected() + 1) % assets.deck.count, false);
-    if (restartAt && int32_t(millis() - restartAt) >= 0) {
-        if (pendingSave)
-            settings.save();
-        ESP.restart();
-    }
+
     uint32_t elapsed = micros() - loopStart;
     if (elapsed > loopMaxUs)
         loopMaxUs = elapsed;

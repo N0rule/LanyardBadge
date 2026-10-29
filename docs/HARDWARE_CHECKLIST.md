@@ -13,7 +13,7 @@ on the actual 240 × 320 ST7789 with USB connectors at the bottom:
 - [ ] First touch wakes only; a second touch performs the intended action.
 - [ ] Slideshow pauses while dark and restarts its interval after wake.
 - [ ] No continuous redrawing of static art; assess tearing during transitions.
-- [ ] Boot recovery opens connection at 2 seconds, calibration at 6 seconds.
+- [ ] PC-initiated pairing shows a PIN without opening a menu on the badge.
 - [ ] Real phone Web Bluetooth discovery/pair/upload/reconnect works.
 - [ ] Browser USB update completes with Erase unchecked and retains cards.
 
@@ -28,6 +28,6 @@ resettable badge:
 - [ ] Windows Chrome/Edge and Linux Chromium native enrollment, bonded reconnect, revocation.
 - [ ] Real Web Serial permission, cable removal, cancel and installer return.
 - [ ] Rename appears in OS discovery after clearing any OS display-name cache.
-- [ ] Factory reset physically confirmed, all artwork/settings/bonds removed, firmware retained.
+- [ ] Factory reset confirmed on the touchscreen, all artwork/settings/bonds removed, firmware retained.
 - [ ] Power interrupted during each reset stage safely completes at next boot.
 - [ ] Legacy profile/custom collection remains protected until acknowledged reset.

@@ -180,7 +180,7 @@ void Network::dispatch(const String &path) {
         }
         requestReset();
         JsonDocument out;
-        out["confirmation"] = "Hold BOOT on the badge for 3 seconds";
+        out["confirmation"] = "Tap Erase everything on the badge to confirm";
         json(202, out);
     } else if (path == "/api/name") {
         JsonDocument d;

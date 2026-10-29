@@ -118,7 +118,7 @@
           : '')
       );
     if (error.name === 'NotFoundError')
-      return 'No badge selected. Keep its connection screen open and scan again.';
+      return 'No badge selected. Keep the badge powered on and scan again.';
     return error.message;
   }
   function showRemembered() {
@@ -725,7 +725,7 @@
     !/Android/.test(navigator.userAgent)
   ) {
     $('compatibility').textContent =
-      'For first-time Bluetooth pairing, enter the six-digit number shown on the badge into your browser’s Bluetooth prompt. Open Connect to editor on the badge to allow a new editor.';
+      'For first-time Bluetooth pairing, enter the six-digit number shown on the badge into your browser’s Bluetooth prompt. The badge shows the PIN automatically when you connect.';
   }
   if (windows)
     $('compatibility').textContent =
@@ -1116,7 +1116,7 @@
     try {
       await transport.json('/api/reset', {});
       $('reset-status').textContent =
-        'Release BOOT, then hold it on the badge for 3 seconds. Go back on the badge to cancel.';
+        'Confirm by tapping Erase everything on the badge, or tap Cancel.';
       if (activeBadgeId) await artworkCache.clearDevice(activeBadgeId);
       forgetRemembered();
     } catch (e) {

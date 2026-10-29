@@ -993,7 +993,10 @@ test('device name and reset request use shared API with deliberate confirmation'
   expect(await page.evaluate(() => !!bleMock.resetRequested)).toBe(false);
   page.once('dialog', (d) => d.accept());
   await page.locator('#factory-reset').click();
-  await expect(page.locator('#reset-status')).toContainText('hold it on the badge for 3 seconds');
+  await expect(page.locator('#reset-status')).toContainText(
+    'tapping Erase everything on the badge',
+  );
   expect(await page.evaluate(() => bleMock.deck.cards.length)).toBe(1);
+  await expect(page.locator('#reset-status')).not.toContainText('BOOT');
   expect(errors).toEqual([]);
 });

@@ -22,7 +22,6 @@ class Bluetooth : public Transfer,
     std::atomic<bool> upgradeNeeded_{false}, upgradeAttempted_{false};
     std::atomic<uint32_t> generation_{0};
     uint32_t seenGeneration_ = 0;
-    std::atomic<uint32_t> enrollmentUntil_{0};
     std::atomic<uint16_t> mtu_{23}, handle_{0}, initialInterval_{0};
     std::atomic<int> disconnectReason_{0}, securityStatus_{0};
     std::atomic<uint32_t> securityEvents_{0}, nativePasskey_{UINT32_MAX}, nativeStarted_{0};
@@ -44,8 +43,6 @@ class Bluetooth : public Transfer,
     void tick();
     void revoke();
     void refreshName();
-    void openEnrollment() { enrollmentUntil_ = millis() + 120000; }
-    bool enrollmentOpen() const { return int32_t(enrollmentUntil_.load() - millis()) > 0; }
     bool forgetEditors();
     bool connected() const { return connected_; }
     int disconnectReason() const { return disconnectReason_; }

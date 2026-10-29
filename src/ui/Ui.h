@@ -13,34 +13,27 @@ enum class Command {
     Autoplay,
     Interval,
     DefaultCard,
-    Setup,
-    CloseSetup,
     Rotate,
-    Restart,
-    Storage,
     Select,
     Timeout,
     RevokePairing,
     Theme,
     Back,
+    ConfirmReset,
     CancelBluetoothPairing
 };
 enum class Page {
     Badge,
     Menu,
     Gallery,
-    Info,
     Calibration,
-    Storage,
     Pairing,
     Slideshow,
     Display,
     Settings,
-    Advanced,
     RePair,
     BluetoothPairing,
     FactoryReset,
-    DeviceName
 };
 class Ui {
     Display &display_;
@@ -49,7 +42,8 @@ class Ui {
     SettingsStore &settings_;
     lv_display_t *lvDisplay_ = nullptr;
     lv_fs_drv_t fs_{};
-    Page page_ = Page::Badge, renderedPage_ = Page::Storage;
+    Page page_ = Page::Badge, renderedPage_ = Page::Menu;
+    bool resetFailed_ = false;
     bool dirty_ = true, busy_ = false, ignore_ = true;
     Gestures gestures_;
     unsigned selected_ = 0;
@@ -101,7 +95,6 @@ class Ui {
 
   public:
     std::function<void(Command, int)> command;
-    std::function<String()> info;
     std::function<String()> pairingUrl;
     Ui(Display &d, Touch &t, Assets &a, SettingsStore &s)
         : display_(d), touch_(t), assets_(a), settings_(s) {}
@@ -110,6 +103,10 @@ class Ui {
     void pump();
     void page(Page p);
     void nativePairing(uint32_t passkey);
+    void resetFailed() {
+        resetFailed_ = true;
+        dirty_ = true;
+    }
     void goBack() { back(); }
     void paired() {
         pairedOnce_ = true;
