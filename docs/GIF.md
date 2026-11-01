@@ -17,18 +17,18 @@ refresh after saving edits to use the updated, revisioned editor assets.
 
 ## Limits and memory
 
-GIF input is limited to 30 MB, 16 million source pixels, 300 frames and 30 seconds
-per cycle. Source dimensions times frame count must not exceed 64 million decoded
+GIF input is limited to 100 MB, 16 million source pixels, 2,000 frames and 180 seconds
+per cycle. Source dimensions times frame count must not exceed 128 million decoded
 pixels to bound decoder caching. Native WebCodecs GIF support is feature-detected;
 unsupported browsers receive an explicit error without a first-frame fallback.
 Frame delays have a 20 ms floor and a 100 ms fallback for missing durations.
 Native decoding handles transparency and GIF disposal before applying the common
 artwork transform and RGB565 quantization.
 
-Prepared assets must fit 1 MiB and the badge's available storage, with 32 KiB
+Prepared assets must fit 1.5 MiB and the badge's available storage, with 32 KiB
 reserved for metadata and recovery. Shorter/simpler GIFs fit better. This is not a
-promise that every 30 MB GIF will fit on a 4 MB/no-PSRAM device. Compression uses
-raw pixels or run-length encoding per changed rectangle, whichever is smaller.
+promise that every 100 MB GIF will fit on a 4 MB/no-PSRAM device. Compression chooses raw pixels, run-length encoding, or the lossless dictionary
+encoding per changed rectangle, whichever is smallest.
 The browser retains the original GIF Blob throughout an unsaved editing session;
 it does not replace it with its first frame or close it during re-pairing.
 Committed artwork may be reopened from a validated, credential-scoped cache as
@@ -54,10 +54,10 @@ Unchanged frames use x=y=width=height=payload length=encoding=0 and retain their
 | --- | --- |
 | 0 | `LBA1` magic, 4 bytes |
 | 4, 6 | width=240, height=320, uint16 |
-| 8 | frame count, uint16 (1–300) |
+| 8 | frame count, uint16 (1–2000) |
 | 10 | total plays, uint16; 0 means infinite |
-| 12 | complete file size, uint32 (at most 1 MiB) |
-| 16 | sum of frame delays in milliseconds, uint32 (at most 30,000) |
+| 12 | complete file size, uint32 (at most 1.5 MiB) |
+| 16 | sum of frame delays in milliseconds, uint32 (at most 180,000) |
 | 20 | CRC-32/IEEE of bytes 32 through EOF, uint32 |
 | 24 | CRC-32/IEEE of header bytes 0–23, uint32 |
 | 28 | reserved uint32, must be zero |
@@ -68,8 +68,8 @@ width×height little-endian uint16 pixels. Encoding 1 contains `(run length, col
 uint16 pairs, with nonzero lengths totaling exactly width×height. Runs may cross
 rows/stripes. The decoder rejects zero runs, excess/short output, unknown encodings,
 invalid rectangles, trailing bytes, inconsistent duration, and CRC failures.
-CRC detects corruption; confidentiality and authentication remain provided by the
-existing authenticated encrypted BLE link and application ownership check.
+CRC detects corruption. Bluetooth uses the temporary editor-code access control;
+artwork transfers are not encrypted.
 
 Authenticated `POST /api/animations` stages variable-size uploads. Only a complete,
 validated file is atomically renamed from `/upload.tmp` to `/img-<id>.lba`. A failed
@@ -100,3 +100,14 @@ Active authenticated request bodies and acknowledged response chunks refresh the
 API session lease. Long transfers therefore count as activity; they do not consume
 a fixed 20-minute lease from initial pairing. Idle expiry and revocation remain
 in force. Decoder bounds and CRC checks remain enabled in the faster draw path.
+
+## Encoding 2: lossless dictionary
+
+A little-endian uint16 control word with its top bit clear introduces
+(control+1) literal RGB565 words. With the top bit set it introduces
+(control&32767)+3 output pixels followed by a uint16 backward distance in pixels.
+Distances are 1–4096 and cannot exceed pixels already output in this frame.
+References may overlap. Every frame resets its history; decoded length must equal
+its rectangle area, and all compressed bytes must be consumed. Firmware uses an
+8 KiB ring and the existing bounded stripe buffers. Still images are one-frame,
+one-play LBA files when smaller than BMP.

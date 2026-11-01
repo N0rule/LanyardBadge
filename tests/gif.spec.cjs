@@ -130,13 +130,48 @@ test('GIF preparation rejects unsupported decoding and oversized input without f
       globalThis.ImageDecoder = Decoder;
     }
     try {
-      await BadgeGIF.prepare(new Blob([new Uint8Array(30 * 1024 * 1024 + 1)]), () => frames++);
+      await BadgeGIF.prepare(new Blob([new Uint8Array(100 * 1024 * 1024 + 1)]), () => frames++);
     } catch (e) {
       oversized = e.message;
     }
     return { unsupported, oversized, frames };
   }, gif);
   expect(result.unsupported).toContain('cannot prepare');
-  expect(result.oversized).toContain('smaller than 30 MB');
+  expect(result.oversized).toContain('smaller than 100 MB');
   expect(result.frames).toBe(0);
+});
+
+test('compression preserves long frame delays with hold records', async ({ page }) => {
+  await setup(page);
+  const result = await page.evaluate(async (gif) => {
+    const decode = ImageDecoder.prototype.decode;
+    ImageDecoder.prototype.decode = async function (options) {
+      const result = await decode.call(this, options);
+      if (options.frameIndex === 0) {
+        const original = result.image;
+        result.image = new VideoFrame(original, {
+          timestamp: original.timestamp,
+          duration: 60000000,
+        });
+        original.close();
+      }
+      return result;
+    };
+    try {
+      const bytes = await BadgeGIF.encode(
+        new Blob([Uint8Array.from(atob(gif), (c) => c.charCodeAt(0))], { type: 'image/gif' }),
+      );
+      const animation = BadgeGIF.parse(bytes);
+      return {
+        duration: animation.durationMs,
+        delays: animation.frames.map((f) => f.durationMs),
+        hold: animation.frames[1].width,
+      };
+    } finally {
+      ImageDecoder.prototype.decode = decode;
+    }
+  }, gif);
+  expect(result.duration).toBe(60480);
+  expect(result.delays.slice(0, 2)).toEqual([30000, 30000]);
+  expect(result.hold).toBe(0);
 });

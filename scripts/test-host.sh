@@ -15,6 +15,9 @@ c++ -std=c++17 -O2 -Wall -Wextra -Werror -I tests/reset-stubs tests/factory_rese
 "$binary"
 c++ -std=c++17 -Wall -Wextra -Werror tests/editor_code_test.cpp -o "$binary"
 "$binary"
+node tests/compression.test.cjs
+c++ -std=c++17 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined tests/compression_test.cpp -o "$binary"
+"$binary"
 node tests/serial.test.cjs
 node tests/codec.test.cjs
 node tests/gif.test.cjs

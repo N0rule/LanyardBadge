@@ -2,11 +2,11 @@
 (() => {
   'use strict';
   const limits = Object.freeze({
-    bytes: 30 * 1024 * 1024,
+    bytes: 100 * 1024 * 1024,
     pixels: 16_000_000,
-    frames: 300,
-    durationMs: 30_000,
-    decodedPixels: 64_000_000,
+    frames: 2000,
+    durationMs: 180_000,
+    decodedPixels: 128_000_000,
   });
   function header(bytes) {
     if (!(bytes instanceof Uint8Array) || bytes.length < 13)
@@ -83,7 +83,7 @@
     )
       throw Error('Invalid artwork adjustments.');
     if (typeof onFrame !== 'function') throw TypeError('A frame sink is required.');
-    if (blob.size > limits.bytes) throw Error('Choose a GIF smaller than 30 MB.');
+    if (blob.size > limits.bytes) throw Error('Choose a GIF smaller than 100 MB.');
     signal?.throwIfAborted();
     const data = new Uint8Array(await blob.arrayBuffer()),
       dimensions = header(data);
@@ -102,7 +102,7 @@
       await decoder.completed;
       const track = decoder.tracks.selectedTrack;
       if (!track || !track.frameCount || track.frameCount > limits.frames)
-        throw Error('Choose a GIF with 1–300 frames.');
+        throw Error('Choose a GIF with 1–2000 frames.');
       if (dimensions.width * dimensions.height * track.frameCount > limits.decodedPixels)
         throw Error('Choose a smaller GIF or fewer frames.');
       const metadata = {
@@ -124,7 +124,7 @@
           const durationMs = Math.max(20, Math.round((image.duration ?? 100_000) / 1000));
           totalDurationMs += durationMs;
           if (totalDurationMs > limits.durationMs)
-            throw Error('Choose a GIF no longer than 30 seconds.');
+            throw Error('Choose a GIF no longer than 180 seconds.');
           BadgeArtwork.draw(context, bitmap, state, background);
           const current = BadgeCodec.encodePixels(context.getImageData(0, 0, 240, 320).data);
           const region = difference(previous, current);
@@ -145,7 +145,7 @@
       decoder.close();
     }
   }
-  const maxBytes = 1024 * 1024;
+  const maxBytes = 1536 * 1024;
   const crcTable = Uint32Array.from({ length: 256 }, (_, i) => {
     let n = i;
     for (let b = 0; b < 8; b++) n = (n >>> 1) ^ (n & 1 ? 0xedb88320 : 0);
@@ -156,7 +156,65 @@
     for (const b of bytes) n = (n >>> 8) ^ crcTable[(n ^ b) & 255];
     return ~n >>> 0;
   }
-  function pack(pixels) {
+  // RGB565 dictionary codec: literal words or overlapping backreferences.
+  // Window is 4096 pixels so firmware needs only 8 KiB of history.
+  function dictionary(pixels) {
+    const output = [],
+      table = new Int32Array(65536).fill(-1);
+    const emit = (n) => output.push(n & 255, n >>> 8);
+    let anchor = 0,
+      i = 0;
+    const literal = (end) => {
+      while (anchor < end) {
+        const n = Math.min(32768, end - anchor);
+        emit(n - 1);
+        for (let k = 0; k < n; k++) emit(pixels[anchor++]);
+      }
+    };
+    while (i + 3 < pixels.length) {
+      const hash = (((pixels[i] * 31) ^ (pixels[i + 1] * 17) ^ pixels[i + 2]) >>> 0) & 65535;
+      const previous = table[hash];
+      table[hash] = i;
+      let n = 0;
+      if (previous >= 0 && i - previous <= 4096)
+        while (n < 32770 && i + n < pixels.length && pixels[previous + n] === pixels[i + n]) n++;
+      if (n >= 4) {
+        literal(i);
+        emit(0x8000 | (n - 3));
+        emit(i - previous);
+        i += n;
+        anchor = i;
+      } else i++;
+    }
+    literal(pixels.length);
+    return Uint8Array.from(output);
+  }
+  function unpackDictionary(bytes, count) {
+    const pixels = new Uint16Array(count),
+      view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let at = 0,
+      out = 0;
+    const word = () => {
+      if (at + 2 > bytes.length) throw Error('Truncated compressed artwork');
+      const n = view.getUint16(at, true);
+      at += 2;
+      return n;
+    };
+    while (at < bytes.length) {
+      const token = word(),
+        n = (token & 32767) + (token & 32768 ? 3 : 1);
+      if (out + n > count) throw Error('Compressed artwork exceeds frame');
+      if (token & 32768) {
+        const distance = word();
+        if (!distance || distance > 4096 || distance > out)
+          throw Error('Invalid artwork reference');
+        for (let k = 0; k < n; k++, out++) pixels[out] = pixels[out - distance];
+      } else for (let k = 0; k < n; k++) pixels[out++] = word();
+    }
+    if (out !== count) throw Error('Incomplete compressed artwork');
+    return pixels;
+  }
+  function pack(pixels, compressed = true) {
     const runs = [];
     for (let i = 0; i < pixels.length;) {
       const color = pixels[i];
@@ -170,7 +228,10 @@
       bytes = new Uint8Array(values.length * 2),
       view = new DataView(bytes.buffer);
     for (let i = 0; i < values.length; i++) view.setUint16(i * 2, values[i], true);
-    return { encoding: Number(encoded), bytes };
+    const compact = compressed && pixels.length ? dictionary(pixels) : null;
+    return compact && compact.length < bytes.length
+      ? { encoding: 2, bytes: compact }
+      : { encoding: Number(encoded), bytes };
   }
   function parse(buffer) {
     const fail = () => {
@@ -187,7 +248,7 @@
       u16(4) !== 240 ||
       u16(6) !== 320 ||
       !u16(8) ||
-      u16(8) > 300 ||
+      u16(8) > 2000 ||
       u32(12) !== b.length ||
       u32(28) ||
       crc(b.subarray(0, 24)) !== u32(24) ||
@@ -215,14 +276,15 @@
         durationMs > 30000 ||
         !width !== !height ||
         (!count && (x || y || length || encoding)) ||
-        encoding > 1 ||
+        encoding > 2 ||
         (!encoding && length !== count * 2) ||
-        (encoding && (!length || length % 4)) ||
+        (encoding === 1 && (!length || length % 4)) ||
         at + length > b.length ||
         (!i && (x || y || width !== 240 || height !== 320))
       )
         fail();
-      if (encoding) {
+      if (encoding === 2) unpackDictionary(b.subarray(at, at + length), count);
+      if (encoding === 1) {
         let decoded = 0;
         for (let p = at; p < at + length; p += 4) {
           if (!u16(p)) fail();
@@ -235,7 +297,7 @@
       at += length;
     }
     for (const frame of frames) durationMs += frame.durationMs;
-    if (at !== b.length || durationMs !== u32(16) || durationMs > 30000) fail();
+    if (at !== b.length || durationMs !== u32(16) || durationMs > 180000) fail();
     return { buffer, frames, plays: u16(10), durationMs, width: 240, height: 320 };
   }
   function paint(animation, index, context) {
@@ -243,11 +305,16 @@
     if (!f.width) return;
     const view = new DataView(animation.buffer),
       data = context.createImageData(f.width, f.height);
+    const dictionaryPixels =
+      f.encoding === 2
+        ? unpackDictionary(new Uint8Array(animation.buffer, f.at, f.length), f.width * f.height)
+        : null;
     let p = f.at,
       remaining = 0,
       color;
     for (let i = 0; i < f.width * f.height; i++) {
-      if (!f.encoding) {
+      if (dictionaryPixels) color = dictionaryPixels[i];
+      else if (!f.encoding) {
         color = view.getUint16(p, true);
         p += 2;
       } else {
@@ -269,11 +336,11 @@
     const parts = [];
     let size = 32;
     const sink = (f) => {
-      const packed = pack(f.pixels),
+      const packed = pack(f.pixels, options.compressed !== false),
         record = new Uint8Array(16 + packed.bytes.length),
         v = new DataView(record.buffer);
-      [f.x, f.y, f.width, f.height, f.durationMs, packed.encoding].forEach((n, i) =>
-        v.setUint16(i * 2, n, true),
+      [f.x, f.y, f.width, f.height, Math.min(f.durationMs, 30000), packed.encoding].forEach(
+        (n, i) => v.setUint16(i * 2, n, true),
       );
       v.setUint32(12, packed.bytes.length, true);
       record.set(packed.bytes, 16);
@@ -281,6 +348,16 @@
       if (size > maxBytes)
         throw Error('This animation is too large for the badge. Choose a shorter or simpler GIF.');
       parts.push(record);
+      let remaining = f.durationMs - 30000;
+      while (remaining > 0) {
+        const hold = new Uint8Array(16);
+        new DataView(hold.buffer).setUint16(8, Math.min(remaining, 30000), true);
+        parts.push(hold);
+        size += 16;
+        remaining -= 30000;
+      }
+      if (parts.length > 2000 || size > maxBytes)
+        throw Error('Prepared artwork exceeds the badge storage or frame limit.');
       options.onProgress?.(Math.round(((f.index + 1) * 100) / f.frameCount));
     };
     let metadata;
@@ -322,7 +399,7 @@
     bytes.set(new TextEncoder().encode('LBA1'));
     v.setUint16(4, 240, true);
     v.setUint16(6, 320, true);
-    v.setUint16(8, metadata.frames, true);
+    v.setUint16(8, parts.length, true);
     v.setUint16(
       10,
       metadata.repetitions === Infinity ? 0 : Math.min(65535, metadata.repetitions + 1),
@@ -344,7 +421,7 @@
     let decoder, animation, track;
     const image = document.createElement('canvas');
     if (source instanceof Blob) {
-      if (source.size > limits.bytes) throw Error('Choose a GIF smaller than 30 MB.');
+      if (source.size > limits.bytes) throw Error('Choose a GIF smaller than 100 MB.');
       const data = new Uint8Array(await source.arrayBuffer()),
         dimensions = header(data);
       if (!(await supported())) throw Error('This browser cannot prepare animated GIFs.');
@@ -354,7 +431,7 @@
         await decoder.completed;
         track = decoder.tracks.selectedTrack;
         if (!track || !track.frameCount || track.frameCount > limits.frames)
-          throw Error('Choose a GIF with 1–300 frames.');
+          throw Error('Choose a GIF with 1–2000 frames.');
         if (dimensions.width * dimensions.height * track.frameCount > limits.decodedPixels)
           throw Error('Choose a smaller GIF or fewer frames.');
       } catch (e) {
@@ -471,6 +548,29 @@
     maxBytes,
     crc,
     pack,
+    dictionary,
+    unpackDictionary,
+    still(pixels) {
+      const packed = pack(pixels),
+        bytes = new Uint8Array(48 + packed.bytes.length),
+        v = new DataView(bytes.buffer);
+      bytes.set(new TextEncoder().encode('LBA1'));
+      v.setUint16(4, 240, true);
+      v.setUint16(6, 320, true);
+      v.setUint16(8, 1, true);
+      v.setUint16(10, 1, true);
+      v.setUint32(12, bytes.length, true);
+      v.setUint32(16, 100, true);
+      v.setUint16(36, 240, true);
+      v.setUint16(38, 320, true);
+      v.setUint16(40, 100, true);
+      v.setUint16(42, packed.encoding, true);
+      v.setUint32(44, packed.bytes.length, true);
+      bytes.set(packed.bytes, 48);
+      v.setUint32(20, crc(bytes.subarray(32)), true);
+      v.setUint32(24, crc(bytes.subarray(0, 24)), true);
+      return bytes.buffer;
+    },
     parse,
     paint,
     encode,

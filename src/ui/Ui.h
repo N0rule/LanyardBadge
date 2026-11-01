@@ -76,7 +76,7 @@ class Ui {
     void animate();
     bool pairedOnce_ = false;
     uint32_t nativePasskey_ = UINT32_MAX;
-    Page pairingReturn_ = Page::Badge;
+    Page pairingReturn_ = assets_.deck.count ? Page::Badge : Page::Pairing;
     uint32_t renderedTheme_ = 2;
     void render();
     bool streamArtwork();
@@ -111,7 +111,7 @@ class Ui {
     void paired() {
         pairedOnce_ = true;
         if (page_ == Page::BluetoothPairing)
-            pairingReturn_ = Page::Badge;
+            pairingReturn_ = assets_.deck.count ? Page::Badge : Page::Pairing;
         else if (page_ == Page::Pairing)
             page(Page::Badge);
     }

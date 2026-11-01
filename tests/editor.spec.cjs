@@ -228,7 +228,8 @@ test('deleting final saved card returns an editable draft without a device place
   await page.locator('#delete-card').click();
   await expect(page.locator('#toast')).toHaveText('Card deleted.');
   expect(await page.evaluate(() => bleMock.deck.cards.length)).toBe(0);
-  await expect(page.locator('#title')).toHaveValue('My artwork');
+  await expect(page.locator('#create-first-card')).toBeVisible();
+  await expect(page.locator('#preview')).not.toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -900,4 +901,43 @@ test('old native-pairing firmware requires an update rather than a Windows promp
   await page.locator('#connect').click();
   await expect(page.locator('#toast')).toContainText('Update your badge firmware');
   await expect(page.locator('#pair-dialog')).not.toBeVisible();
+});
+
+test('empty collection asks for the first artwork and picker cancel preserves emptiness', async ({
+  page,
+}) => {
+  await setup(page);
+  await page.evaluate(() => {
+    bleMock.deck.cards = [];
+  });
+  await connect(page);
+  await expect(page.locator('#create-first-card')).toBeVisible();
+  await expect(page.locator('#preview')).not.toBeVisible();
+  expect(await page.locator('#card-list button').count()).toBe(0);
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('#create-first-card').click();
+  await (await chooser).setFiles([]);
+  await expect(page.locator('#create-first-card')).toBeVisible();
+  await page.screenshot({ path: '../test-results/empty-collection-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: '../test-results/empty-collection-mobile.png', fullPage: true });
+  await image(page);
+  await expect(page.locator('#create-first-card')).not.toBeVisible();
+  await expect(page.locator('#preview')).toBeVisible();
+  expect(await page.evaluate(() => bleMock.deck.cards.length)).toBe(0);
+});
+test('client compresses still artwork when firmware advertises support', async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => {
+    bleMock.status.artworkCompression = 2;
+  });
+  await image(page);
+  await page.locator('#save-card').click();
+  await expect(page.locator('#save-state')).toHaveText('Card uploaded');
+  const result = await page.evaluate(() => ({
+    bytes: bleMock.uploads.at(-1)?.length,
+    path: bleMock.lastUploadPath,
+  }));
+  expect(result.path).toBe('/api/animations');
+  expect(result.bytes).toBeLessThan(153666);
 });

@@ -5,7 +5,7 @@
 #include <array>
 namespace badge {
 // LBA1 is a display-ready asset, not a GIF decoder. No full framebuffer is needed.
-constexpr uint32_t maxAnimationBytes = 1024 * 1024;
+constexpr uint32_t maxAnimationBytes = 1536 * 1024;
 inline constexpr auto animationCrcTable = [] {
     std::array<uint32_t, 256> table{};
     for (unsigned i = 0; i < table.size(); ++i) {
@@ -25,8 +25,8 @@ struct AnimationHeader {
 };
 inline bool animationHeader(const uint8_t *p, size_t n, size_t size, AnimationHeader &h) {
     if (n < 32 || memcmp(p, "LBA1", 4) || read16(p + 4) != 240 || read16(p + 6) != 320 ||
-        !read16(p + 8) || read16(p + 8) > 300 || read32(p + 12) != size || size < 48 ||
-        size > maxAnimationBytes || !read32(p + 16) || read32(p + 16) > 30000 ||
+        !read16(p + 8) || read16(p + 8) > 2000 || read32(p + 12) != size || size < 48 ||
+        size > maxAnimationBytes || !read32(p + 16) || read32(p + 16) > 180000 ||
         read32(p + 24) != checksum(p, 24) || read32(p + 28))
         return false;
     h = {read16(p + 8), read16(p + 10), read32(p + 12), read32(p + 16), read32(p + 20)};
@@ -38,6 +38,7 @@ struct AnimationFrame {
 class AnimationDecoder {
     CachedReader<8192> reader_;
     uint8_t runs_[1024];
+    uint16_t history_[4096];
     AnimationHeader header_;
     uint16_t frame_ = 0;
     uint32_t crc_ = 0xffffffff, duration_ = 0;
@@ -76,14 +77,23 @@ class AnimationDecoder {
         uint32_t bytes = read32(h + 12), pixels = uint32_t(f.width) * f.height;
         if (f.x + f.width > 240 || f.y + f.height > 320 || f.delay < 20 || f.delay > 30000 ||
             (!f.width != !f.height) || (!pixels && (f.x || f.y || bytes || encoding)) ||
-            encoding > 1 || bytes > source.size() - reader_.position() ||
-            (!encoding && bytes != pixels * 2) || (encoding && (!bytes || bytes % 4)) ||
+            encoding > 2 || bytes > source.size() - reader_.position() ||
+            (!encoding && bytes != pixels * 2) || (encoding == 1 && (!bytes || bytes % 4)) ||
             (!frame_ && (f.x || f.y || f.width != 240 || f.height != 320)) ||
             (pixels && words < f.width))
             return false;
         uint32_t end = reader_.position() + bytes, remaining = 0;
         size_t runAt = 0, runValid = 0;
-        uint16_t color = 0;
+        uint16_t color = 0, distance = 0;
+        uint32_t produced = 0;
+        bool reference = false;
+        auto word = [&](uint16_t &value) {
+            uint8_t data[2];
+            if (reader_.position() + 2 > end || !read(source, data, 2))
+                return false;
+            value = read16(data);
+            return true;
+        };
         unsigned rows = f.width ? unsigned(words / f.width) : 1;
         for (unsigned y = 0; y < f.height; y += rows) {
             unsigned countRows = f.height - y < rows ? f.height - y : rows;
@@ -94,6 +104,29 @@ class AnimationDecoder {
                     return false;
                 for (size_t i = 0; i < count; ++i)
                     scratch[i] = read16(bytes + i * 2);
+            } else if (encoding == 2) {
+                for (size_t i = 0; i < count; ++i) {
+                    if (!remaining) {
+                        uint16_t token;
+                        if (!word(token))
+                            return false;
+                        reference = token & 0x8000;
+                        remaining = (token & 0x7fff) + (reference ? 3 : 1);
+                        if (remaining > pixels - produced)
+                            return false;
+                        if (reference && (!word(distance) || !distance || distance > 4096 ||
+                                          distance > produced))
+                            return false;
+                    }
+                    uint16_t pixel;
+                    if (reference)
+                        pixel = history_[(produced - distance) & 4095];
+                    else if (!word(pixel))
+                        return false;
+                    history_[produced & 4095] = scratch[i] = pixel;
+                    ++produced;
+                    --remaining;
+                }
             } else {
                 size_t i = 0;
                 while (i < count) {
@@ -127,7 +160,7 @@ class AnimationDecoder {
             return false;
         duration_ += f.delay;
         ++frame_;
-        return duration_ <= 30000 &&
+        return duration_ <= 180000 &&
                (!finished() || (reader_.position() == source.size() && ~crc_ == header_.crc &&
                                 duration_ == header_.duration));
     }

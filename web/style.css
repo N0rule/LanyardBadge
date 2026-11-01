@@ -859,3 +859,29 @@ ewt-no-port-picked-dialog {
   height: 3px;
   margin: 0;
 }
+
+.studio.is-empty {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: calc(100dvh - 160px);
+  place-items: center;
+}
+.studio.is-empty > :not(#empty-collection) {
+  display: none;
+}
+#empty-collection {
+  text-align: center;
+}
+#create-first-card {
+  padding: 24px 32px;
+  font-size: 20px;
+  min-height: 92px;
+}
+#create-first-card span {
+  font-size: 28px;
+  margin-right: 8px;
+}
+#empty-collection p {
+  margin: 16px auto;
+  color: var(--muted);
+}

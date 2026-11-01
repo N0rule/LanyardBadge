@@ -244,6 +244,7 @@ JsonDocument Network::statusDocument() const {
     d["factoryReset"] = true;
     d["imageReadMax"] = imageReadMax;
     d["animationFormat"] = 1;
+    d["artworkCompression"] = 2;
     d["maxAnimationBytes"] = maxAnimationBytes;
     auto sizes = d["artworkSizes"].to<JsonObject>();
     for (unsigned i = 0; i < assets_.deck.count; ++i) {

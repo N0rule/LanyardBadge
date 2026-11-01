@@ -47,7 +47,9 @@ supports up to ten cards.
 
 GIF files are prepared in the browser for bounded-memory animation playback.
 Use the animation controls to preview motion. The device supports animations up
-to 1 MiB; large source GIFs may need fewer frames or a smaller crop. Transfers show
+to 1.5 MiB, 2,000 frames and three minutes. Lossless compression chooses the
+smallest encoding for each display-ready frame, and compresses still images too.
+The badge has 1.94 MiB of artwork storage; complex animations may still exceed it. Transfers show
 actual progress. Canceling or losing a connection keeps the original draft in the
 current tab. Keep that tab open until your work is uploaded.
 

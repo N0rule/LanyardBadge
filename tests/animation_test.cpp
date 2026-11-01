@@ -116,4 +116,5 @@ int main() {
     assert(!imageRead("abcdef01&offset=90&length=7", range, 96));
     puts("Animation: bounded stripes, raw/RLE/delta/unchanged frames, loops, CRC, corruption and "
          "range bounds passed");
+    return 0;
 }

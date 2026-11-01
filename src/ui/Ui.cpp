@@ -639,8 +639,7 @@ void Ui::nativePairing(uint32_t passkey) {
 }
 void Ui::page(Page p) {
     wake();
-    if (p == Page::Badge && !assets_.legacyCollection() && !settings_.value.provisioned &&
-        !pairedOnce_)
+    if (p == Page::Badge && !assets_.legacyCollection() && !assets_.deck.count)
         p = Page::Pairing;
     if (p == Page::FactoryReset)
         resetFailed_ = false;

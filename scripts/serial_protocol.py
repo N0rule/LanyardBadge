@@ -111,7 +111,7 @@ class Client:
         self.sequence = (self.sequence + 1) & 65535
         payload = b"" if body is None else bytes(body) if raw else json.dumps(body).encode()
         header = json.dumps(dict(method="GET" if body is None else "POST", path=path, token=self.token, length=len(payload))).encode()
-        if len(header) > 512 or len(payload) > (1024 * 1024 if raw else 24576):
+        if len(header) > 512 or len(payload) > (1536 * 1024 if raw else 24576):
             raise ValueError("Request too large")
         for at in range(0, len(header), 505):
             part = header[at:at + 505]
@@ -122,7 +122,7 @@ class Client:
             self.acknowledged(2, at, part, at + len(part))
         self.send(3, len(payload))
         op, length, data = self.receive()
-        if op != 1 or length > 1024 * 1024 or len(data) != 2:
+        if op != 1 or length > 1536 * 1024 or len(data) != 2:
             raise RuntimeError("Invalid response header")
         code = struct.unpack("<H", data)[0]
         result = bytearray()

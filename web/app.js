@@ -43,7 +43,7 @@
     const player = states.get(card().id)?.player;
     if (activePlayer && activePlayer !== player) activePlayer.pause();
     activePlayer = player;
-    $('animation-toggle').hidden = !player;
+    $('animation-toggle').hidden = !player || states.get(card().id)?.frames === 1;
     const controls = () => {
       $('animation-toggle').textContent = player?.finished
         ? 'Replay animation'
@@ -374,10 +374,23 @@
     }
     activeBadgeId = deviceId;
   }
+  function emptyCollection() {
+    return (
+      !committed?.cards.length &&
+      deck.cards.length === 1 &&
+      !card().image &&
+      !states.has(card().id) &&
+      !changed
+    );
+  }
   function gallery() {
+    const empty = emptyCollection();
+    $('studio').classList.toggle('is-empty', empty);
+    $('empty-collection').hidden = !empty;
+
     $('card-list').replaceChildren();
-    $('card-count').textContent = deck.cards.length + ' / 10';
-    deck.cards.forEach((c, i) => {
+    $('card-count').textContent = (empty ? 0 : deck.cards.length) + ' / 10';
+    (empty ? [] : deck.cards).forEach((c, i) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'gallery-card';
@@ -761,7 +774,7 @@
     stopArtwork();
     lock(true);
     try {
-      if (file.size > 30 * 1024 * 1024) throw Error('Choose artwork smaller than 30 MB.');
+      if (file.size > 100 * 1024 * 1024) throw Error('Choose artwork smaller than 100 MB.');
       const signature = new Uint8Array(await file.slice(0, 6).arrayBuffer());
       const gif =
         file.type === 'image/gif' || /^GIF8[79]a$/.test(String.fromCharCode(...signature));
@@ -806,6 +819,7 @@
       gallery();
       sync();
       dirty(true);
+      gallery();
     } catch (err) {
       toast('Could not open artwork. ' + err.message);
     } finally {
@@ -905,6 +919,7 @@
     sync();
     dirty(true);
   };
+  $('create-first-card').onclick = () => $('image-file').click();
   $('new-card').onclick = () => {
     if (deck.cards.length >= 10) return;
     deck.cards.push(blank());
@@ -935,6 +950,7 @@
           saved.cards = saved.cards.filter((c) => c.id !== id);
           const result = await transport.updateCards(saved);
           deck.revision = result.revision;
+          committed = structuredClone(result);
         }
       }
       states.get(id)?.image?.close?.();
@@ -1005,11 +1021,19 @@
               throw Error('Update your badge firmware using USB to upload animated GIFs.');
             progress('Preparing animation…', 0);
             bytes = await BadgeGIF.encode(s.animationSource, {
+              compressed: status.artworkCompression >= 2,
               transform: { ...s },
               background: hex(c.background),
               signal: transport.sessionAbort.signal,
               onProgress: (p) => progress(`Preparing animation… ${p}%`, p),
             });
+            if (!(status.artworkCompression >= 2)) {
+              const header = new DataView(bytes);
+              if (header.getUint16(8, true) > 300 || header.getUint32(16, true) > 30000)
+                throw Error(
+                  'Update badge firmware over USB for longer GIFs and improved compression.',
+                );
+            }
             if (bytes.byteLength > (status.maxAnimationBytes || BadgeGIF.maxBytes))
               throw Error(
                 'This animation is too large for the badge. Choose a shorter or simpler GIF.',
@@ -1020,13 +1044,18 @@
             output.height = 320;
             const out = output.getContext('2d');
             BadgeArtwork.draw(out, s.image, s, hex(c.background));
-            bytes = BadgeCodec.encodeBMP(out.getImageData(0, 0, 240, 320).data);
+            const rgba = out.getImageData(0, 0, 240, 320).data;
+            bytes = BadgeCodec.encodeBMP(rgba);
+            if (status.artworkCompression >= 2) {
+              const compressed = BadgeGIF.still(BadgeCodec.encodePixels(rgba));
+              if (compressed.byteLength < bytes.byteLength) bytes = compressed;
+            }
           }
           progress('Uploading card…', 0);
           const result = await transport.uploadCard(
             bytes,
             (p) => progress(`Uploading card… ${p}%`, p),
-            !!s.animationSource,
+            new DataView(bytes).getUint32(0, false) === 0x4c424131,
           );
           imageId = result.id;
           s.uploadedId = imageId;

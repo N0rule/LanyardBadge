@@ -42,7 +42,7 @@
       }).then((r) => r.json());
     }
     async getArtwork(id, { rangeBytes = 0, signal, onProgress, total = 153666 } = {}) {
-      if (!Number.isInteger(total) || total < 48 || total > 1024 * 1024)
+      if (!Number.isInteger(total) || total < 48 || total > 1536 * 1024)
         throw Error('Invalid badge artwork size.');
       signal?.throwIfAborted();
       if (!rangeBytes) {
@@ -146,7 +146,7 @@
         return;
       }
       if (op === 1) {
-        if (at > 1024 * 1024 || v.byteLength !== 9) {
+        if (at > 1536 * 1024 || v.byteLength !== 9) {
           p?.reject(Error('Invalid badge response'));
           return;
         }
