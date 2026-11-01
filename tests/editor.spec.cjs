@@ -306,18 +306,8 @@ test('disconnected landing has only connect and install, then opens a neutral em
   await connect(page);
   await expect(page.locator('#welcome')).toBeHidden();
   await expect(page.locator('#studio')).toBeVisible();
-  const colors = await page.evaluate(() => {
-    const c = document.getElementById('preview'),
-      p = c.getContext('2d').getImageData(0, 0, 240, 320).data;
-    return Array.from(
-      new Set(
-        Array.from({ length: p.length / 4 }, (_, i) =>
-          [p[i * 4], p[i * 4 + 1], p[i * 4 + 2]].join(','),
-        ),
-      ),
-    );
-  });
-  expect(colors).toEqual(['241,243,245']);
+  await expect(page.locator('#create-first-card')).toBeVisible();
+  await expect(page.locator('#preview')).not.toBeVisible();
   await page.locator('#disconnect-top').click();
   await expect(page.locator('#studio')).toBeHidden();
   await expect(page.locator('#welcome')).toBeVisible();
@@ -940,4 +930,21 @@ test('client compresses still artwork when firmware advertises support', async (
   }));
   expect(result.path).toBe('/api/animations');
   expect(result.bytes).toBeLessThan(153666);
+});
+
+test('new draft has a themed artwork placeholder instead of a white screen', async ({ page }) => {
+  await setup(page);
+  await connect(page);
+  await page.locator('#theme').selectOption('dark');
+  await page.locator('#new-card').click();
+  await expect(page.locator('#preview-placeholder')).toBeVisible();
+  await expect(page.locator('#preview-choose-image')).toBeVisible();
+  const fill = await page
+    .locator('#preview-placeholder')
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(fill).not.toBe('rgb(241, 243, 245)');
+  expect(fill).not.toBe('rgb(255, 255, 255)');
+  await page.screenshot({ path: '../test-results/draft-placeholder-dark.png', fullPage: true });
+  await image(page);
+  await expect(page.locator('#preview-placeholder')).not.toBeVisible();
 });

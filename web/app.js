@@ -191,9 +191,13 @@
       : card().image
         ? 'Loading card preview…'
         : 'Choose artwork to begin.';
-    $('preview-placeholder').hidden = !!s || !card().image;
-    $('preview-placeholder-label').textContent = 'Loading artwork';
-    $('preview-progress').hidden = false;
+    $('preview-placeholder').hidden = !!s;
+    $('preview-placeholder').classList.toggle('is-empty', !s && !card().image);
+    $('preview-choose-image').hidden = !!s || !!card().image;
+    $('preview-placeholder-label').textContent = card().image
+      ? 'Loading artwork'
+      : 'Your next artwork goes here';
+    $('preview-progress').hidden = !card().image;
     $('preview-progress').removeAttribute('value');
     canvas.classList.toggle('has-artwork', !!s);
     syncAnimation();
@@ -220,7 +224,9 @@
   function draw() {
     const c = card(),
       s = states.get(c.id);
-    context.fillStyle = s ? hex(c.background) : '#f1f3f5';
+    context.fillStyle = s
+      ? hex(c.background)
+      : getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
     context.fillRect(0, 0, 240, 320);
     if (s) BadgeArtwork.draw(context, s.image, s, hex(c.background));
     const thumb = $('card-list').querySelector(`[data-card-id="${c.id}"] .card-thumbnail`);
@@ -919,6 +925,7 @@
     sync();
     dirty(true);
   };
+  $('preview-choose-image').onclick = () => $('image-file').click();
   $('create-first-card').onclick = () => $('image-file').click();
   $('new-card').onclick = () => {
     if (deck.cards.length >= 10) return;

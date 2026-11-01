@@ -885,3 +885,18 @@ ewt-no-port-picked-dialog {
   margin: 16px auto;
   color: var(--muted);
 }
+
+.preview-placeholder.is-empty {
+  background-color: var(--surface);
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 16px 16px;
+  color: var(--muted);
+  pointer-events: auto;
+  padding: 20px;
+}
+.preview-placeholder.is-empty svg {
+  color: var(--accent);
+}
+.preview-placeholder.is-empty button {
+  background: var(--surface);
+}

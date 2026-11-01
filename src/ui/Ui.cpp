@@ -419,6 +419,8 @@ void Ui::diagnostics(JsonDocument &d) const {
     d["animationIoUs"] = animationIoUs_;
     d["animationSpiUs"] = animationSpiUs_;
     d["animationError"] = animationError_;
+    d["animationDecodePosition"] = animationDecoder_.position();
+    d["animationDecodeErrorLine"] = animationDecoder_.failureLine();
     d["uploadStage"] = uploadPhaseName(uploadPhase_);
     d["uploadPercent"] = uploadPercent_;
     d["screenAsleep"] = activity_.asleep();

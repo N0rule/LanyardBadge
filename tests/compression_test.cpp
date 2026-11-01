@@ -1,3 +1,4 @@
+#define word(...) 0 // Arduino macro must never intercept the decoder helper.
 #define main original_animation_main
 #include "animation_test.cpp"
 #undef main

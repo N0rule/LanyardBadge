@@ -40,7 +40,7 @@ class AnimationDecoder {
     uint8_t runs_[1024];
     uint16_t history_[4096];
     AnimationHeader header_;
-    uint16_t frame_ = 0;
+    uint16_t frame_ = 0, failureLine_ = 0;
     uint32_t crc_ = 0xffffffff, duration_ = 0;
     template <class Source> bool read(Source &source, uint8_t *out, size_t n) {
         if (reader_.read(source, out, n) != n)
@@ -51,6 +51,8 @@ class AnimationDecoder {
     }
 
   public:
+    unsigned position() const { return reader_.position(); }
+    unsigned failureLine() const { return failureLine_; }
     const AnimationHeader &header() const { return header_; }
     bool finished() const { return frame_ == header_.frames; }
     template <class Source> bool begin(Source &source) {
@@ -67,11 +69,15 @@ class AnimationDecoder {
     template <class Source, class Sink>
     bool next(Source &source, uint16_t *scratch, size_t words, AnimationFrame &f, Sink sink,
               uint16_t *alternate = nullptr) {
-        if (finished())
+        auto reject = [&](unsigned line) {
+            failureLine_ = line;
             return false;
+        };
+        if (finished())
+            return reject(__LINE__);
         uint8_t h[16];
         if (!read(source, h, sizeof(h)))
-            return false;
+            return reject(__LINE__);
         f = {read16(h), read16(h + 2), read16(h + 4), read16(h + 6), read16(h + 8)};
         uint16_t encoding = read16(h + 10);
         uint32_t bytes = read32(h + 12), pixels = uint32_t(f.width) * f.height;
@@ -81,16 +87,16 @@ class AnimationDecoder {
             (!encoding && bytes != pixels * 2) || (encoding == 1 && (!bytes || bytes % 4)) ||
             (!frame_ && (f.x || f.y || f.width != 240 || f.height != 320)) ||
             (pixels && words < f.width))
-            return false;
+            return reject(__LINE__);
         uint32_t end = reader_.position() + bytes, remaining = 0;
         size_t runAt = 0, runValid = 0;
         uint16_t color = 0, distance = 0;
         uint32_t produced = 0;
         bool reference = false;
-        auto word = [&](uint16_t &value) {
+        auto readWord = [&](uint16_t &value) {
             uint8_t data[2];
             if (reader_.position() + 2 > end || !read(source, data, 2))
-                return false;
+                return reject(__LINE__);
             value = read16(data);
             return true;
         };
@@ -101,28 +107,28 @@ class AnimationDecoder {
             if (!encoding) {
                 auto *bytes = reinterpret_cast<uint8_t *>(scratch);
                 if (reader_.position() + count * 2 > end || !read(source, bytes, count * 2))
-                    return false;
+                    return reject(__LINE__);
                 for (size_t i = 0; i < count; ++i)
                     scratch[i] = read16(bytes + i * 2);
             } else if (encoding == 2) {
                 for (size_t i = 0; i < count; ++i) {
                     if (!remaining) {
                         uint16_t token;
-                        if (!word(token))
-                            return false;
+                        if (!readWord(token))
+                            return reject(__LINE__);
                         reference = token & 0x8000;
                         remaining = (token & 0x7fff) + (reference ? 3 : 1);
                         if (remaining > pixels - produced)
-                            return false;
-                        if (reference && (!word(distance) || !distance || distance > 4096 ||
+                            return reject(__LINE__);
+                        if (reference && (!readWord(distance) || !distance || distance > 4096 ||
                                           distance > produced))
-                            return false;
+                            return reject(__LINE__);
                     }
                     uint16_t pixel;
                     if (reference)
                         pixel = history_[(produced - distance) & 4095];
-                    else if (!word(pixel))
-                        return false;
+                    else if (!readWord(pixel))
+                        return reject(__LINE__);
                     history_[produced & 4095] = scratch[i] = pixel;
                     ++produced;
                     --remaining;
@@ -137,13 +143,13 @@ class AnimationDecoder {
                             runValid = std::min<size_t>(sizeof(runs_), end - reader_.position());
                             runAt = 0;
                             if (!runValid || !read(source, runs_, runValid))
-                                return false;
+                                return reject(__LINE__);
                         }
                         remaining = read16(runs_ + runAt);
                         color = read16(runs_ + runAt + 2);
                         runAt += 4;
                         if (!remaining)
-                            return false;
+                            return reject(__LINE__);
                     }
                     size_t run = std::min<size_t>(remaining, count - i);
                     std::fill_n(scratch + i, run, color);
@@ -152,12 +158,12 @@ class AnimationDecoder {
                 }
             }
             if (!sink(f.x, f.y + y, f.width, countRows, scratch))
-                return false;
+                return reject(__LINE__);
             if (alternate)
                 std::swap(scratch, alternate);
         }
         if (remaining || reader_.position() != end || runAt != runValid)
-            return false;
+            return reject(__LINE__);
         duration_ += f.delay;
         ++frame_;
         return duration_ <= 180000 &&
