@@ -1,5 +1,8 @@
-# LanyardBadge
+<p align="center">
+  <img src="docs/banner.jpg" alt="LanyardBadge" width="100%">
+</p>
 
+<h1 align="center">LanyardBadge</h1>
 Artwork you can wear. Turn a USB-powered ESP32 touchscreen into a personal artwork badge.
 
 Open the [editor](https://n0rule.is-a.dev/LanyardBadge/) to install firmware, connect,
